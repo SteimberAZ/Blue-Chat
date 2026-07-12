@@ -77,7 +77,10 @@ export default function BlueChatApp() {
       
       const { data: authData, error: authError } = await supabase.auth.signUp({ 
         email, 
-        password 
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`
+        }
       });
       
       if (authError) {
@@ -279,7 +282,7 @@ export default function BlueChatApp() {
       <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl overflow-hidden flex border border-blue-100">
         
         {/* PANEL IZQUIERDO: Contactos */}
-        <aside className="w-full md:w-[380px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white">
+        <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           <header className="h-[72px] bg-blue-600 flex items-center justify-between px-4 text-white">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg backdrop-blur-sm shadow-inner uppercase">
