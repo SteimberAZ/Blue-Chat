@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -11,6 +11,7 @@ export default function BlueChatApp() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [contacts, setContacts] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [sentRequests, setSentRequests] = useState<any[]>([]);
   const [chatMeta, setChatMeta] = useState<Record<string, any>>({});
   
   // Estado del Formulario Auth
@@ -31,6 +32,11 @@ export default function BlueChatApp() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [editingNickname, setEditingNickname] = useState('');
+  
+  // Interfaz Menú
+  const [showMenu, setShowMenu] = useState(false);
+  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | null>(null);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
 
   // Estado del Chat Activo
   const [selectedContact, setSelectedContact] = useState<any>(null);
@@ -86,6 +92,7 @@ export default function BlueChatApp() {
     if (contactLinks) {
       const acceptedIds = contactLinks.filter((c:any) => c.status === 'accepted').map((c:any) => c.sender_id === userId ? c.receiver_id : c.sender_id);
       const pendingSenderIds = contactLinks.filter((c:any) => c.status === 'pending' && c.receiver_id === userId).map((c:any) => c.sender_id);
+      const pendingSentIds = contactLinks.filter((c:any) => c.status === 'pending' && c.sender_id === userId).map((c:any) => c.receiver_id);
 
       let acceptedUsers: any[] = [];
       if (acceptedIds.length > 0) {
@@ -111,6 +118,19 @@ export default function BlueChatApp() {
         }
       } else {
         setPendingRequests([]);
+      }
+
+      if (pendingSentIds.length > 0) {
+        const { data: sentUsers } = await supabase.from('employees').select('*').in('id', pendingSentIds);
+        if (sentUsers) {
+          setSentRequests(prev => {
+            const prevIds = prev.map(p => p.id).sort().join(',');
+            const newIds = sentUsers.map(n => n.id).sort().join(',');
+            return prevIds !== newIds ? sentUsers : prev;
+          });
+        }
+      } else {
+        setSentRequests([]);
       }
 
       // Cargar metadatos para la bandeja de entrada de los usuarios aceptados
@@ -350,6 +370,12 @@ export default function BlueChatApp() {
     setPendingRequests(prev => prev.filter(u => u.id !== senderId));
   };
 
+  const cancelSentRequest = async (targetId: string) => {
+    await supabase.from('contacts').delete().match({ sender_id: currentUser.id, receiver_id: targetId });
+    setSentRequests(prev => prev.filter(u => u.id !== targetId));
+    notifyNetwork();
+  };
+
   const deleteContact = async (contactId: string) => {
     if (!confirm("¿Estás seguro de que quieres eliminar a este contacto? Ya no podrán enviarse mensajes.")) return;
     
@@ -515,6 +541,8 @@ export default function BlueChatApp() {
     return timeB - timeA;
   });
 
+  const filteredContacts = sortedContacts.filter(c => getDisplayName(c).toLowerCase().includes(chatSearchQuery.toLowerCase()));
+
   // UI: LOGIN
   if (!session || !currentUser) {
     return (
@@ -623,6 +651,99 @@ export default function BlueChatApp() {
         </div>
       )}
 
+      {/* Modals de Menú */}
+      {activeModal === 'profile' && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 relative flex flex-col items-center text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full p-2"><X size={20} weight="bold"/></button>
+            <div className="w-24 h-24 bg-gradient-to-tr from-purple-400 to-purple-600 text-white rounded-full flex items-center justify-center font-bold text-4xl shadow-xl shadow-purple-500/30 uppercase mb-4 ring-4 ring-white">
+               {currentUser.first_name?.[0] || 'U'}
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-800">{currentUser.first_name} {currentUser.last_name}</h2>
+            <p className="text-purple-600 font-bold mb-4 bg-purple-50 px-3 py-1 rounded-full mt-2 inline-block">#{currentUser.short_id || '0000'}</p>
+            <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center gap-3">
+               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm"><EnvelopeSimple size={18} /></div>
+               <p className="text-sm text-slate-600 font-medium truncate flex-1 text-left">{currentUser.email}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'pending' && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Bell className="text-orange-500" weight="fill"/> Solicitudes Pendientes</h2>
+            <div className="max-h-[60vh] overflow-y-auto space-y-2">
+               {pendingRequests.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No tienes solicitudes pendientes.</p> :
+                  pendingRequests.map(req => (
+                    <div key={req.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold">{req.first_name?.[0]}</div>
+                          <div>
+                             <p className="text-sm font-semibold text-slate-800">{req.first_name}</p>
+                             <p className="text-xs text-slate-500">#{req.short_id || '0000'}</p>
+                          </div>
+                       </div>
+                       <div className="flex gap-2">
+                          <button onClick={() => acceptRequest(req.id)} className="w-9 h-9 bg-green-100 text-green-600 rounded-lg flex items-center justify-center hover:bg-green-500 hover:text-white transition-colors"><CheckCircle weight="fill" size={20} /></button>
+                          <button onClick={() => rejectRequest(req.id)} className="w-9 h-9 bg-red-100 text-red-600 rounded-lg flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors"><X weight="bold" size={16} /></button>
+                       </div>
+                    </div>
+                  ))
+               }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'sent' && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><PaperPlaneRight className="text-blue-500" weight="fill"/> Solicitudes Enviadas</h2>
+            <div className="max-h-[60vh] overflow-y-auto space-y-2">
+               {sentRequests.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No has enviado solicitudes.</p> :
+                  sentRequests.map(req => (
+                    <div key={req.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{req.first_name?.[0]}</div>
+                          <div>
+                             <p className="text-sm font-semibold text-slate-800">{req.first_name}</p>
+                             <p className="text-xs text-slate-500">#{req.short_id || '0000'}</p>
+                          </div>
+                       </div>
+                       <button onClick={() => cancelSentRequest(req.id)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-100 hover:text-red-600 transition-colors">Cancelar</button>
+                    </div>
+                  ))
+               }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'contacts' && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="text-emerald-500" weight="fill"/> Todos los contactos</h2>
+            <div className="max-h-[60vh] overflow-y-auto space-y-2">
+               {contacts.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Aún no tienes contactos.</p> :
+                  contacts.map(contact => (
+                    <div key={contact.id} onClick={() => { setActiveModal(null); setContactProfile(contact); }} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
+                       <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold uppercase">{contact.first_name?.[0]}</div>
+                       <div>
+                          <p className="text-sm font-semibold text-slate-800">{getDisplayName(contact)}</p>
+                          <p className="text-xs text-slate-500">#{contact.short_id || '0000'}</p>
+                       </div>
+                    </div>
+                  ))
+               }
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Añadir Contacto */}
       {showAddContact && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -681,10 +802,37 @@ export default function BlueChatApp() {
             </button>
           </header>
 
-          <div className="p-3 bg-white border-b border-slate-100">
-            <div className="bg-slate-100 rounded-xl flex items-center px-4 py-2.5">
+          <div className="p-3 bg-white border-b border-slate-100 flex items-center gap-2 relative">
+            <button 
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors relative"
+            >
+              <List size={22} weight="bold" />
+              {pendingRequests.length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-white"></span>}
+            </button>
+
+            {showMenu && (
+              <div className="absolute top-14 left-3 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2">
+                <button onClick={() => { setShowMenu(false); setActiveModal('pending'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center justify-between">
+                  <div className="flex items-center gap-3 font-medium"><Bell size={18} className="text-orange-500" weight="fill" /> Pendientes</div>
+                  {pendingRequests.length > 0 && <span className="bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{pendingRequests.length}</span>}
+                </button>
+                <button onClick={() => { setShowMenu(false); setActiveModal('sent'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
+                  <PaperPlaneRight size={18} className="text-blue-500" weight="fill"/> Enviadas
+                </button>
+                <button onClick={() => { setShowMenu(false); setActiveModal('contacts'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
+                  <Users size={18} className="text-emerald-500" weight="fill"/> Todos los contactos
+                </button>
+                <div className="my-1 border-t border-slate-100"></div>
+                <button onClick={() => { setShowMenu(false); setActiveModal('profile'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
+                  <User size={18} className="text-purple-500" weight="fill" /> Mi Perfil
+                </button>
+              </div>
+            )}
+
+            <div className="flex-1 bg-slate-100 rounded-xl flex items-center px-4 py-2.5">
               <MagnifyingGlass size={20} className="text-slate-400" />
-              <input type="text" placeholder="Buscar un chat..." className="bg-transparent border-none outline-none ml-3 text-sm w-full text-slate-700 placeholder-slate-400"/>
+              <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)} placeholder="Buscar un chat..." className="bg-transparent border-none outline-none ml-3 text-sm w-full text-slate-700 placeholder-slate-400"/>
             </div>
           </div>
           
@@ -695,34 +843,14 @@ export default function BlueChatApp() {
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {pendingRequests.length > 0 && (
-               <div className="bg-orange-50/50 border-b border-orange-100">
-                  <div className="px-4 py-2 text-[11px] font-bold text-orange-600 uppercase tracking-wider">Solicitudes Pendientes ({pendingRequests.length})</div>
-                  {pendingRequests.map(req => (
-                    <div key={req.id} className="flex items-center justify-between px-4 py-3 bg-white border-b border-orange-50 last:border-b-0">
-                       <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold text-sm uppercase">{req.first_name?.[0]}</div>
-                          <div>
-                             <div className="text-sm font-semibold text-slate-800">{req.first_name} <span className="text-slate-400 font-normal">#{req.short_id || '0000'}</span></div>
-                          </div>
-                       </div>
-                       <div className="flex items-center gap-2">
-                          <button onClick={() => acceptRequest(req.id)} className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center hover:bg-green-200 transition-colors shadow-sm"><CheckCircle weight="fill" size={20} /></button>
-                          <button onClick={() => rejectRequest(req.id)} className="w-8 h-8 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors shadow-sm"><X weight="bold" size={16} /></button>
-                       </div>
-                    </div>
-                  ))}
-               </div>
-            )}
-
-            {sortedContacts.length === 0 ? (
+            {filteredContacts.length === 0 ? (
               <div className="p-8 text-center flex flex-col items-center">
                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4"><UserPlus size={32} className="text-slate-400"/></div>
-                 <p className="text-sm text-slate-500 font-medium">Aún no tienes contactos.</p>
-                 <p className="text-xs text-slate-400 mt-1">Busca amigos usando su ID y añádelos para empezar a chatear.</p>
+                 <p className="text-sm text-slate-500 font-medium">{chatSearchQuery ? 'No se encontraron chats.' : 'Aún no tienes contactos.'}</p>
+                 {!chatSearchQuery && <p className="text-xs text-slate-400 mt-1">Añade amigos para empezar a chatear.</p>}
               </div>
             ) : (
-              sortedContacts.map(contact => {
+              filteredContacts.map(contact => {
                 const meta = chatMeta[contact.id];
                 const lastMsg = meta?.lastMessage;
                 const unreadCount = meta?.unreadCount || 0;
