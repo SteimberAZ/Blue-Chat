@@ -145,21 +145,37 @@ export default function BlueChatApp() {
         setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
       });
 
-      // Motor de Reintento Offline a Online
+      // Motor de Reintento Offline a Online (Cuando el OTRO se conecta)
       channel.on('presence', { event: 'join' }, ({ key }) => {
         if (key !== currentUser.id) {
-          localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
-            if (!history) return;
-            const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
-            pending.forEach((pMsg: any) => {
-              channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg });
+          setTimeout(() => {
+            localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
+              if (!history) return;
+              const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
+              pending.forEach((pMsg: any) => {
+                channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg });
+              });
             });
-          });
+          }, 800); // Delay de seguridad para que su WebSocket esté listo para escuchar
         }
       });
 
+      // Cuando YO me conecto (o recupero mi internet tras estar offline)
       channel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') await channel.track({ online_at: new Date().toISOString() });
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ online_at: new Date().toISOString() });
+          
+          // Reintentar mis propios mensajes que se quedaron pendientes mientras yo no tenía WiFi
+          setTimeout(() => {
+            localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
+              if (!history) return;
+              const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
+              pending.forEach((pMsg: any) => {
+                channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg });
+              });
+            });
+          }, 800);
+        }
       });
 
       channelsRef.current[roomId] = channel;
