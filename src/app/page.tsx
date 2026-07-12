@@ -899,7 +899,7 @@ export default function BlueChatApp() {
       
       {/* Modal Perfil de Contacto */}
       {contactProfile && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all" onClick={() => setContactProfile(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all" onClick={() => setContactProfile(null)}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs sm:max-w-sm p-6 sm:p-8 relative flex flex-col items-center text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <button onClick={() => setContactProfile(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full p-2 transition-colors"><X size={20} weight="bold"/></button>
             <div className="w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-4xl sm:text-5xl shadow-xl shadow-blue-500/30 uppercase mb-5 ring-4 ring-white">
@@ -939,7 +939,7 @@ export default function BlueChatApp() {
 
       {/* Modals de Menú */}
       {activeModal === 'profile' && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 relative flex flex-col items-center text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full p-2"><X size={20} weight="bold"/></button>
             <div className="w-24 h-24 bg-gradient-to-tr from-purple-400 to-purple-600 text-white rounded-full flex items-center justify-center font-bold text-4xl shadow-xl shadow-purple-500/30 uppercase mb-4 ring-4 ring-white">
@@ -956,7 +956,7 @@ export default function BlueChatApp() {
       )}
 
       {activeModal === 'pending' && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Bell className="text-orange-500" weight="fill"/> Solicitudes Pendientes</h2>
@@ -984,7 +984,7 @@ export default function BlueChatApp() {
       )}
 
       {activeModal === 'sent' && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><PaperPlaneRight className="text-blue-500" weight="fill"/> Solicitudes Enviadas</h2>
@@ -1009,7 +1009,7 @@ export default function BlueChatApp() {
       )}
 
       {activeModal === 'contacts' && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="text-emerald-500" weight="fill"/> Todos los contactos</h2>
@@ -1040,7 +1040,7 @@ export default function BlueChatApp() {
       )}
 
       {activeModal === 'sessions' && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Desktop className="text-blue-500" weight="fill"/> Sesiones Abiertas</h2>
@@ -1072,7 +1072,7 @@ export default function BlueChatApp() {
 
       {/* Modal Añadir Contacto */}
       {showAddContact && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
             <button onClick={() => setShowAddContact(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4">Añadir Contacto</h2>
