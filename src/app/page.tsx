@@ -51,6 +51,9 @@ export default function BlueChatApp() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   
+  // Ref para prevenir múltiples verificaciones de dispositivo
+  const hasCheckedDeviceRef = useRef(false);
+  
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
@@ -86,11 +89,42 @@ export default function BlueChatApp() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        fetchUserData(session.user);
+        if (!hasCheckedDeviceRef.current) {
+           setLoginStep('checking');
+           hasCheckedDeviceRef.current = true;
+           
+           const tempChannel = supabase.channel(`user-device-ping-${session.user.id}`);
+           let otherDeviceFound = false;
+           tempChannel.on('broadcast', { event: 'ping_reply' }, () => { otherDeviceFound = true; });
+           tempChannel.subscribe(async (status) => {
+              if (status === 'SUBSCRIBED') {
+                 setTimeout(() => tempChannel.send({ type: 'broadcast', event: 'ping', payload: {} }), 500);
+                 setTimeout(async () => {
+                    supabase.removeChannel(tempChannel);
+                    if (otherDeviceFound) {
+                        const code = Math.floor(100000 + Math.random() * 900000).toString();
+                        await supabase.from('device_transfers').delete().eq('user_id', session.user.id);
+                        await supabase.from('device_transfers').insert({ user_id: session.user.id, auth_code: code });
+                        await fetch('/api/notify', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ recipientEmail: session.user.email, type: 'transfer', code })
+                        });
+                        setLoginStep('transfer_code');
+                    } else {
+                        setLoginStep('none');
+                        fetchUserData(session.user);
+                    }
+                 }, 3000);
+              }
+           });
+        } else if (loginStep === 'none') {
+           fetchUserData(session.user);
+        }
       } else {
         setCurrentUser(null);
         setContacts([]);
-        setPendingRequests([]);
+        hasCheckedDeviceRef.current = false;
       }
     });
 
@@ -243,7 +277,7 @@ export default function BlueChatApp() {
 
     const interval = setInterval(() => fetchFriends(currentUser.id), 8000);
 
-    const deviceChannel = supabase.channel(`user-device-${currentUser.id}`);
+    const deviceChannel = supabase.channel(`user-device-ping-${currentUser.id}`);
     deviceChannel.on('broadcast', { event: 'ping' }, () => {
       deviceChannel.send({ type: 'broadcast', event: 'ping_reply', payload: {} });
     });
@@ -566,53 +600,15 @@ export default function BlueChatApp() {
     
     if (isLoginMode) {
       setLoginStep('checking');
-      const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
+      hasCheckedDeviceRef.current = false; // Reset to force check
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         setAuthError(error.message);
         setIsLoading(false);
         setLoginStep('none');
-        return;
       }
-      
-      if (authData.session) {
-        const tempChannel = supabase.channel(`user-device-${authData.session.user.id}`);
-        let otherDeviceFound = false;
-
-        tempChannel.on('broadcast', { event: 'ping_reply' }, () => {
-          otherDeviceFound = true;
-        });
-
-        tempChannel.subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            setTimeout(() => {
-              tempChannel.send({ type: 'broadcast', event: 'ping', payload: {} });
-            }, 500);
-            
-            setTimeout(async () => {
-              supabase.removeChannel(tempChannel);
-              
-              if (otherDeviceFound) {
-                const code = Math.floor(100000 + Math.random() * 900000).toString();
-                await supabase.from('device_transfers').delete().eq('user_id', authData.session.user.id);
-                await supabase.from('device_transfers').insert({ user_id: authData.session.user.id, auth_code: code });
-                
-                await fetch('/api/notify', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ recipientEmail: email, type: 'transfer', code })
-                });
-
-                setLoginStep('transfer_code');
-                setIsLoading(false);
-              } else {
-                setLoginStep('none');
-                setIsLoading(false);
-              }
-            }, 3000);
-          }
-        });
-        return;
-      }
+      // El resto lo maneja onAuthStateChange
+      return;
     } else {
       if (!name.trim()) {
         setAuthError('Por favor ingresa un nombre.');
@@ -653,7 +649,7 @@ export default function BlueChatApp() {
         await supabase.from('device_transfers').update({ status: 'uploading' }).eq('id', data.id);
         setLoginStep('downloading');
         
-        const tempChannel = supabase.channel(`user-device-${session.user.id}`);
+        const tempChannel = supabase.channel(`user-device-ping-${session.user.id}`);
         let processed = false;
         
         const processReady = async () => {
