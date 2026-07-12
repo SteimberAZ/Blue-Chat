@@ -247,30 +247,28 @@ export default function BlueChatApp() {
     deviceChannel.on('broadcast', { event: 'ping' }, () => {
       deviceChannel.send({ type: 'broadcast', event: 'ping_reply', payload: {} });
     });
-    deviceChannel.subscribe();
-
-    const transferSub = supabase.channel('transfers')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'device_transfers', filter: `user_id=eq.${currentUser.id}` }, async (payload) => {
-         if (payload.new.status === 'uploading') {
-            const allKeys = await localforage.keys();
-            const exportData: Record<string, any> = {};
-            for (const key of allKeys) {
-               if (key.startsWith('chat_history_') || key.startsWith('unread_')) {
-                  exportData[key] = await localforage.getItem(key);
-               }
-            }
-            await supabase.from('device_transfers').update({ payload: exportData, status: 'ready' }).eq('id', payload.new.id);
-            alert("Tu sesión ha sido transferida a un nuevo dispositivo.");
-            handleLogout();
+    deviceChannel.on('broadcast', { event: 'start_upload' }, async (payload) => {
+      const transferId = payload.payload?.transferId;
+      if (!transferId) return;
+      const allKeys = await localforage.keys();
+      const exportData: Record<string, any> = {};
+      for (const key of allKeys) {
+         if (key.startsWith('chat_history_') || key.startsWith('unread_')) {
+            exportData[key] = await localforage.getItem(key);
          }
-      }).subscribe();
+      }
+      await supabase.from('device_transfers').update({ payload: exportData, status: 'ready' }).eq('id', transferId);
+      deviceChannel.send({ type: 'broadcast', event: 'upload_ready', payload: { transferId } });
+      alert("Tu sesión ha sido transferida a un nuevo dispositivo.");
+      handleLogout();
+    });
+    deviceChannel.subscribe();
 
     return () => { 
       supabase.removeChannel(channel);
       globalChannelRef.current = null;
       clearInterval(interval);
       supabase.removeChannel(deviceChannel);
-      supabase.removeChannel(transferSub);
     };
   }, [currentUser]);
 
@@ -653,22 +651,45 @@ export default function BlueChatApp() {
         await supabase.from('device_transfers').update({ status: 'uploading' }).eq('id', data.id);
         setLoginStep('downloading');
         
-        const downloadSub = supabase.channel('download_wait')
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'device_transfers', filter: `id=eq.${data.id}` }, async (payload) => {
-             if (payload.new.status === 'ready') {
-                setTransferStatusMsg('Descargando historial local...');
-                const exportData = payload.new.payload;
-                if (exportData) {
-                  for (const key in exportData) {
-                     await localforage.setItem(key, exportData[key]);
-                  }
-                }
-                await supabase.from('device_transfers').delete().eq('id', data.id);
-                supabase.removeChannel(downloadSub);
-                setLoginStep('none');
-                fetchUserData(session.user);
-             }
-          }).subscribe();
+        const tempChannel = supabase.channel(`user-device-${session.user.id}`);
+        let processed = false;
+        
+        const processReady = async () => {
+            if (processed) return;
+            processed = true;
+            setTransferStatusMsg('Descargando historial local...');
+            const { data: updatedData } = await supabase.from('device_transfers').select('payload').eq('id', data.id).single();
+            const exportData = updatedData?.payload;
+            if (exportData) {
+              for (const key in exportData) {
+                 await localforage.setItem(key, exportData[key]);
+              }
+            }
+            await supabase.from('device_transfers').delete().eq('id', data.id);
+            supabase.removeChannel(tempChannel);
+            setLoginStep('none');
+            fetchUserData(session.user);
+        };
+
+        tempChannel.on('broadcast', { event: 'upload_ready' }, (payload) => {
+             if (payload.payload?.transferId === data.id) processReady();
+        });
+        
+        tempChannel.subscribe((status) => {
+           if (status === 'SUBSCRIBED') {
+              tempChannel.send({ type: 'broadcast', event: 'start_upload', payload: { transferId: data.id } });
+           }
+        });
+
+        const fallback = setInterval(async () => {
+            if (processed) { clearInterval(fallback); return; }
+            const { data: pollData } = await supabase.from('device_transfers').select('status').eq('id', data.id).single();
+            if (pollData?.status === 'ready') {
+                clearInterval(fallback);
+                processReady();
+            }
+        }, 3000);
+
      } else {
         setTransferStatusMsg('Código incorrecto.');
      }
