@@ -46,6 +46,7 @@ export default function BlueChatApp() {
   const channelsRef = useRef<Record<string, any>>({});
   const roomWritePromises = useRef<Record<string, Promise<void>>>({}); 
   const onlineUsersRef = useRef<Record<string, boolean>>({}); 
+  const globalChannelRef = useRef<any>(null);
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
@@ -83,14 +84,24 @@ export default function BlueChatApp() {
       if (acceptedIds.length > 0) {
         const { data } = await supabase.from('employees').select('*').in('id', acceptedIds);
         acceptedUsers = data || [];
-        setContacts(prev => prev.length !== acceptedUsers.length ? acceptedUsers : prev);
+        setContacts(prev => {
+          const prevIds = prev.map(p => p.id).sort().join(',');
+          const newIds = acceptedUsers.map(n => n.id).sort().join(',');
+          return prevIds !== newIds ? acceptedUsers : prev;
+        });
       } else {
         setContacts([]);
       }
 
       if (pendingSenderIds.length > 0) {
         const { data: pendingUsers } = await supabase.from('employees').select('*').in('id', pendingSenderIds);
-        if (pendingUsers) setPendingRequests(prev => prev.length !== pendingUsers.length ? pendingUsers : prev);
+        if (pendingUsers) {
+          setPendingRequests(prev => {
+            const prevIds = prev.map(p => p.id).sort().join(',');
+            const newIds = pendingUsers.map(n => n.id).sort().join(',');
+            return prevIds !== newIds ? pendingUsers : prev;
+          });
+        }
       } else {
         setPendingRequests([]);
       }
@@ -166,18 +177,27 @@ export default function BlueChatApp() {
   useEffect(() => {
     if (!currentUser) return;
     
-    const globalChannel = supabase.channel('global_notifications');
-    globalChannel.on('broadcast', { event: 'network_update' }, () => {
+    const channel = supabase.channel('global_notifications');
+    channel.on('broadcast', { event: 'network_update' }, () => {
       fetchFriends(currentUser.id);
     }).subscribe();
+    
+    globalChannelRef.current = channel;
 
     const interval = setInterval(() => fetchFriends(currentUser.id), 8000);
 
     return () => { 
-      supabase.removeChannel(globalChannel); 
+      supabase.removeChannel(channel);
+      globalChannelRef.current = null;
       clearInterval(interval);
     };
   }, [currentUser]);
+
+  const notifyNetwork = () => {
+    if (globalChannelRef.current) {
+      globalChannelRef.current.send({ type: 'broadcast', event: 'network_update', payload: {} });
+    }
+  };
 
   // Suscripción Global a canales de chat
   useEffect(() => {
