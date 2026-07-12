@@ -584,7 +584,9 @@ export default function BlueChatApp() {
 
         tempChannel.subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            tempChannel.send({ type: 'broadcast', event: 'ping', payload: {} });
+            setTimeout(() => {
+              tempChannel.send({ type: 'broadcast', event: 'ping', payload: {} });
+            }, 500);
             
             setTimeout(async () => {
               supabase.removeChannel(tempChannel);
@@ -606,7 +608,7 @@ export default function BlueChatApp() {
                 setLoginStep('none');
                 setIsLoading(false);
               }
-            }, 2500);
+            }, 3000);
           }
         });
         return;
