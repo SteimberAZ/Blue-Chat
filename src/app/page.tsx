@@ -953,7 +953,7 @@ export default function BlueChatApp() {
         <main className={`flex-1 flex-col min-w-0 relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
           {selectedContact ? (
             <>
-              <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 md:gap-4 z-10 shadow-sm shrink-0">
+              <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 md:gap-4 z-50 shadow-sm shrink-0">
                 <button className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)}>&larr;</button>
                 <div 
                   onClick={() => setContactProfile(selectedContact)}
@@ -973,7 +973,7 @@ export default function BlueChatApp() {
                   {showChatOptions && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setShowChatOptions(false)}></div>
-                      <div className="absolute right-0 top-12 w-48 bg-white border border-slate-100 rounded-xl shadow-xl z-50 py-1 animate-in fade-in zoom-in-95">
+                      <div className="absolute right-0 top-14 w-48 bg-white border border-slate-100 rounded-xl shadow-xl z-50 py-1 animate-in fade-in zoom-in-95">
                         <button 
                           onClick={() => { setShowChatOptions(false); clearChatHistory(selectedContact.id); }} 
                           className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 font-semibold transition-colors"
