@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -24,6 +24,11 @@ export default function BlueChatApp() {
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [unreadInChat, setUnreadInChat] = useState(0);
+  const prevMessagesLength = useRef(0);
   
   // Refs para evitar problemas de stale-closures en los listeners globales
   const selectedContactRef = useRef<any>(null);
@@ -171,7 +176,11 @@ export default function BlueChatApp() {
     setSelectedContact(contact);
     const roomId = getChatRoomId(currentUser.id, contact.id);
     const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+    
+    prevMessagesLength.current = 0; // Reset para el nuevo chat
     setMessages(history);
+    setShowScrollButton(false);
+    setUnreadInChat(0);
     
     // Al abrir el chat, los no leídos se vuelven 0
     await localforage.setItem(`unread_${roomId}`, 0);
@@ -180,6 +189,52 @@ export default function BlueChatApp() {
       [contact.id]: { ...prev[contact.id], unreadCount: 0 }
     }));
   };
+
+  const handleScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const isNotAtBottom = scrollHeight - scrollTop - clientHeight > 150;
+    setShowScrollButton(isNotAtBottom);
+    if (!isNotAtBottom) {
+      setUnreadInChat(0);
+    }
+  };
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+      setUnreadInChat(0);
+      setShowScrollButton(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!chatContainerRef.current || messages.length === 0) return;
+    
+    const isNewMessage = messages.length > prevMessagesLength.current && prevMessagesLength.current > 0;
+    prevMessagesLength.current = messages.length;
+
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const lastMsg = messages[messages.length - 1];
+    const isMine = lastMsg?.senderId === currentUser?.id;
+
+    if (isNewMessage) {
+      // Si el mensaje es mío o estábamos casi abajo, autoscroll
+      if (isMine || (scrollHeight - scrollTop - clientHeight < 400)) {
+        setTimeout(scrollToBottom, 50); // delay render
+      } else {
+        // Mensaje de otro mientras estamos arriba
+        setUnreadInChat(prev => prev + 1);
+        setShowScrollButton(true);
+      }
+    } else if (messages.length > 0 && scrollTop === 0) {
+      // Carga inicial: ir al fondo directo sin animar
+      chatContainerRef.current.scrollTop = scrollHeight;
+    }
+  }, [messages, currentUser]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -435,7 +490,11 @@ export default function BlueChatApp() {
                 </div>
               </header>
 
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative">
+              <div 
+                ref={chatContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative"
+              >
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
                 
                 {messages.length === 0 ? (
@@ -467,6 +526,22 @@ export default function BlueChatApp() {
                   })
                 )}
               </div>
+
+              {/* Botón Flotante para hacer Scroll Abajo */}
+              {showScrollButton && (
+                <button
+                  onClick={scrollToBottom}
+                  className="absolute bottom-20 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group"
+                  aria-label="Ir al último mensaje"
+                >
+                  <CaretDown size={22} weight="bold" className="group-hover:text-blue-600 transition-colors" />
+                  {unreadInChat > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center border-2 border-white shadow-sm animate-bounce">
+                      {unreadInChat}
+                    </span>
+                  )}
+                </button>
+              )}
 
               <footer className="bg-white border-t border-slate-200 p-3 md:p-4 z-10 relative">
                 <form onSubmit={handleSendMessage} className="flex items-center gap-3">
