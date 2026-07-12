@@ -64,8 +64,15 @@ export default function BlueChatApp() {
 
   const fetchUserData = async (userId: string) => {
     const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
-    if (myProfile) setCurrentUser(myProfile);
-    else setCurrentUser({ id: userId, first_name: 'Usuario', last_name: '' });
+    if (myProfile) {
+      setCurrentUser(myProfile);
+    } else {
+      setCurrentUser((prev: any) => {
+        // Blindaje extremo contra carrera asíncrona: No sobreescribir si ya inyectamos el perfil en handleAuth
+        if (prev && prev.id === userId && prev.first_name && prev.first_name !== 'Usuario') return prev;
+        return { id: userId, first_name: 'Usuario', last_name: '' };
+      });
+    }
 
     const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', userId);
     if (otherUsers) {
@@ -87,16 +94,31 @@ export default function BlueChatApp() {
     }
   };
 
-  // Escuchar a nuevos usuarios que se registren en tiempo real
+  // Escuchar a nuevos usuarios que se registren
   useEffect(() => {
     if (!currentUser) return;
+    
+    // 1. Vía WebSockets (Rápido pero sensible a microcortes de red)
     const globalChannel = supabase.channel('global_notifications');
     globalChannel.on('broadcast', { event: 'new_user_registered' }, async () => {
       const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', currentUser.id);
-      if (otherUsers) setContacts(otherUsers); // Actualiza la lista para que puedan recibir sus mensajes
+      if (otherUsers) {
+        setContacts(prev => prev.length !== otherUsers.length ? otherUsers : prev);
+      }
     }).subscribe();
 
-    return () => { supabase.removeChannel(globalChannel); };
+    // 2. Vía Polling (Red de seguridad antibalas: escanear cada 8 segundos)
+    const interval = setInterval(async () => {
+      const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', currentUser.id);
+      if (otherUsers) {
+        setContacts(prev => prev.length !== otherUsers.length ? otherUsers : prev);
+      }
+    }, 8000);
+
+    return () => { 
+      supabase.removeChannel(globalChannel); 
+      clearInterval(interval);
+    };
   }, [currentUser]);
 
   // Suscripción Global a TODOS los canales de chat
