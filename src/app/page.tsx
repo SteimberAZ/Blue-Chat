@@ -25,6 +25,7 @@ export default function BlueChatApp() {
 
   // Estado del modal de amigos
   const [showAddContact, setShowAddContact] = useState(false);
+  const [contactProfile, setContactProfile] = useState<any>(null); // Perfil clickeado
   const [searchUsername, setSearchUsername] = useState('');
   const [searchShortId, setSearchShortId] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -332,6 +333,20 @@ export default function BlueChatApp() {
     setPendingRequests(prev => prev.filter(u => u.id !== senderId));
   };
 
+  const deleteContact = async (contactId: string) => {
+    if (!confirm("¿Estás seguro de que quieres eliminar a este contacto? Ya no podrán enviarse mensajes.")) return;
+    
+    await supabase.from('contacts').delete()
+      .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${contactId}),and(sender_id.eq.${contactId},receiver_id.eq.${currentUser.id})`);
+    
+    notifyNetwork();
+    fetchFriends(currentUser.id);
+    setContactProfile(null);
+    if (selectedContact?.id === contactId) {
+      setSelectedContact(null);
+    }
+  };
+
 
   const handleSelectContact = async (contact: any) => {
     setSelectedContact(contact);
@@ -551,6 +566,31 @@ export default function BlueChatApp() {
   return (
     <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
       
+      {/* Modal Perfil de Contacto */}
+      {contactProfile && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all" onClick={() => setContactProfile(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs sm:max-w-sm p-6 sm:p-8 relative flex flex-col items-center text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setContactProfile(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full p-2 transition-colors"><X size={20} weight="bold"/></button>
+            <div className="w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-4xl sm:text-5xl shadow-xl shadow-blue-500/30 uppercase mb-5 ring-4 ring-white">
+               {contactProfile.first_name?.[0] || 'U'}
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-800 leading-tight">{contactProfile.first_name} {contactProfile.last_name}</h2>
+            <p className="text-blue-600 font-bold mb-4 bg-blue-50 px-3 py-1 rounded-full mt-2 inline-block">#{contactProfile.short_id || '0000'}</p>
+            <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 mb-6 flex items-center gap-3">
+               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm"><EnvelopeSimple size={18} /></div>
+               <p className="text-sm text-slate-600 font-medium truncate flex-1 text-left">{contactProfile.email}</p>
+            </div>
+            
+            <button 
+              onClick={() => deleteContact(contactProfile.id)}
+              className="w-full py-3.5 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2 shadow-sm"
+            >
+              <X weight="bold" size={18} /> Eliminar Contacto
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modal Añadir Contacto */}
       {showAddContact && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -657,7 +697,10 @@ export default function BlueChatApp() {
                 
                 return (
                   <div key={contact.id} onClick={() => handleSelectContact(contact)} className={`flex items-center gap-4 p-4 cursor-pointer transition-colors border-b border-slate-50 ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-                    <div className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase">
+                    <div 
+                      onClick={(e) => { e.stopPropagation(); setContactProfile(contact); }}
+                      className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase hover:ring-4 hover:ring-blue-200 transition-all"
+                    >
                       {contact.first_name?.[0] || 'U'}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -693,13 +736,16 @@ export default function BlueChatApp() {
         <main className={`flex-1 flex-col min-w-0 relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
           {selectedContact ? (
             <>
-              <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-6 gap-4 z-10 shadow-sm">
+              <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 md:gap-4 z-10 shadow-sm shrink-0">
                 <button className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)}>&larr;</button>
-                <div className="w-10 h-10 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg shadow-sm uppercase">
+                <div 
+                  onClick={() => setContactProfile(selectedContact)}
+                  className="w-10 h-10 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg shadow-sm uppercase cursor-pointer hover:ring-4 hover:ring-blue-200 transition-all flex-shrink-0"
+                >
                   {selectedContact.first_name?.[0] || 'U'}
                 </div>
-                <div>
-                  <h2 className="font-bold text-slate-800">{selectedContact.first_name} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-bold text-slate-800 truncate">{selectedContact.first_name} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
                   <p className="text-xs text-blue-600 font-medium">En línea</p>
                 </div>
               </header>
