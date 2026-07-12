@@ -132,8 +132,14 @@ export default function BlueChatApp() {
       else setMessages([]);
     });
 
-    // 2. Conectarse a Supabase Broadcast
-    const channel = supabase.channel(`chat-${chatRoomId}`);
+    // 2. Conectarse a Supabase Broadcast y Presence
+    const channel = supabase.channel(`chat-${chatRoomId}`, {
+      config: {
+        presence: {
+          key: currentUser.id,
+        },
+      },
+    });
     
     channel.on('broadcast', { event: 'new_message' }, (payload) => {
       const incomingMsg = payload.payload;
@@ -165,7 +171,34 @@ export default function BlueChatApp() {
       });
     });
 
-    channel.subscribe();
+    // Detección de conexión (Presence): Motor de reintento para mensajes 'pending'
+    channel.on('presence', { event: 'join' }, ({ key }) => {
+      // Si el usuario que se unió es el OTRO usuario, reintentar pendientes
+      if (key !== currentUser.id) {
+        localforage.getItem(`chat_history_${chatRoomId}`).then((history: any) => {
+          if (!history) return;
+          
+          const pendingMessages = history.filter(
+            (m: any) => m.status === 'pending' && m.senderId === currentUser.id
+          );
+          
+          pendingMessages.forEach((pendingMsg: any) => {
+            // Re-emisión silenciosa
+            channel.send({
+              type: 'broadcast',
+              event: 'new_message',
+              payload: pendingMsg
+            });
+          });
+        });
+      }
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({ online_at: new Date().toISOString() });
+      }
+    });
 
     channelRef.current = channel;
 
