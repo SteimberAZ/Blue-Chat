@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -40,8 +40,12 @@ export default function BlueChatApp() {
 
   // Interfaz Menú
   const [showMenu, setShowMenu] = useState(false);
-  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | null>(null);
+  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | null>(null);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  
+  // Sesiones Activas
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [contactModalSearch, setContactModalSearch] = useState('');
 
@@ -194,12 +198,59 @@ export default function BlueChatApp() {
     }
   };
 
+  const registerDeviceSession = async (user: any) => {
+     let savedSessionId = localStorage.getItem('bluechat_session_id');
+     if (savedSessionId) {
+        const { data } = await supabase.from('user_sessions').select('id').eq('id', savedSessionId).single();
+        if (!data) savedSessionId = null;
+     }
+
+     if (!savedSessionId) {
+        let ip = 'Desconocida';
+        try {
+           const res = await fetch('https://api.ipify.org?format=json');
+           const data = await res.json();
+           ip = data.ip;
+        } catch(e) {}
+        
+        const ua = navigator.userAgent;
+        let browser = "Desconocido";
+        if (ua.includes("Chrome")) browser = "Chrome";
+        else if (ua.includes("Firefox")) browser = "Firefox";
+        else if (ua.includes("Safari") && !ua.includes("Chrome")) browser = "Safari";
+        else if (ua.includes("Edge")) browser = "Edge";
+        
+        const deviceName = `${browser} en ${navigator.platform}`;
+
+        const { data } = await supabase.from('user_sessions').insert({
+           user_id: user.id,
+           device_name: deviceName,
+           ip_address: ip
+        }).select().single();
+        
+        if (data) {
+           savedSessionId = data.id;
+           localStorage.setItem('bluechat_session_id', data.id);
+        }
+     }
+     
+     setCurrentSessionId(savedSessionId);
+     if (savedSessionId) {
+        supabase.channel(`session-${savedSessionId}`)
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'user_sessions', filter: `id=eq.${savedSessionId}` }, () => {
+             alert("Tu sesión ha sido cerrada remotamente.");
+             handleLogout();
+          }).subscribe();
+     }
+  };
+
   const fetchUserData = async (user: any) => {
     const userId = user.id;
     const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
     
     if (myProfile) {
       setCurrentUser(myProfile);
+      registerDeviceSession(user);
     } else {
       const firstName = user.user_metadata?.first_name || 'Usuario';
       const userShortId = user.user_metadata?.short_id || '0000';
@@ -216,6 +267,7 @@ export default function BlueChatApp() {
       
       if (!error) {
         setCurrentUser(newProfile);
+        registerDeviceSession(user);
       } else {
         setCurrentUser({ id: userId, first_name: firstName, last_name: '', short_id: userShortId });
       }
@@ -293,8 +345,6 @@ export default function BlueChatApp() {
       }
       await supabase.from('device_transfers').update({ payload: exportData, status: 'ready' }).eq('id', transferId);
       deviceChannel.send({ type: 'broadcast', event: 'upload_ready', payload: { transferId } });
-      alert("Tu sesión ha sido transferida a un nuevo dispositivo.");
-      handleLogout();
     });
     deviceChannel.subscribe();
 
@@ -607,7 +657,6 @@ export default function BlueChatApp() {
         setIsLoading(false);
         setLoginStep('none');
       }
-      // El resto lo maneja onAuthStateChange
       return;
     } else {
       if (!name.trim()) {
@@ -693,7 +742,25 @@ export default function BlueChatApp() {
      }
   };
 
+  const fetchActiveSessions = async () => {
+     if (!currentUser) return;
+     const { data } = await supabase.from('user_sessions').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+     if (data) setActiveSessions(data);
+  };
+
+  const killSession = async (sessionId: string) => {
+     if (!confirm("¿Seguro que deseas cerrar esa sesión remotamente?")) return;
+     await supabase.from('user_sessions').delete().eq('id', sessionId);
+     fetchActiveSessions();
+  };
+
   const handleLogout = async () => {
+    let sess = currentSessionId || localStorage.getItem('bluechat_session_id');
+    if (sess) {
+       await supabase.from('user_sessions').delete().eq('id', sess);
+       localStorage.removeItem('bluechat_session_id');
+    }
+
     await supabase.auth.signOut();
     setSelectedContact(null);
     setMessages([]);
@@ -756,7 +823,7 @@ export default function BlueChatApp() {
                 <p className="text-blue-600 font-bold">{transferStatusMsg}</p>
              </div>
            )}
-           <button onClick={() => { setLoginStep('none'); handleLogout(); }} className="mt-6 text-sm text-slate-400 hover:text-slate-600 underline">Cancelar y Volver</button>
+           <button onClick={() => { setLoginStep('none'); }} className="mt-6 text-sm text-slate-400 hover:text-slate-600 underline">Cancelar y Volver</button>
         </div>
       </div>
     );
@@ -972,6 +1039,37 @@ export default function BlueChatApp() {
         </div>
       )}
 
+      {activeModal === 'sessions' && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Desktop className="text-blue-500" weight="fill"/> Sesiones Abiertas</h2>
+            
+            <div className="flex-1 overflow-y-auto space-y-3 scrollbar-thin">
+               {activeSessions.length === 0 ? <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div> :
+                  activeSessions.map(sess => (
+                    <div key={sess.id} className={`p-4 rounded-xl border ${sess.id === currentSessionId ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-slate-50 border-slate-100'}`}>
+                       <div className="flex justify-between items-start mb-1">
+                          <p className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                            {sess.device_name}
+                            {sess.id === currentSessionId && <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-full uppercase font-black tracking-wider">Actual</span>}
+                          </p>
+                          {sess.id !== currentSessionId && (
+                            <button onClick={() => killSession(sess.id)} className="text-xs text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors shrink-0">
+                               Cerrar
+                            </button>
+                          )}
+                       </div>
+                       <p className="text-xs text-slate-500 mb-1"><span className="font-semibold">IP:</span> {sess.ip_address}</p>
+                       <p className="text-[10px] text-slate-400 font-medium">Iniciada el {new Date(sess.created_at).toLocaleString()}</p>
+                    </div>
+                  ))
+               }
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Añadir Contacto */}
       {showAddContact && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1048,8 +1146,11 @@ export default function BlueChatApp() {
                 <button onClick={() => { setShowMenu(false); setActiveModal('sent'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
                   <PaperPlaneRight size={18} className="text-blue-500" weight="fill"/> Enviadas
                 </button>
-                <button onClick={() => { setShowMenu(false); setActiveModal('contacts'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
-                  <Users size={18} className="text-emerald-500" weight="fill"/> Todos los contactos
+                <button onClick={() => { setShowMenu(false); setActiveModal('contacts'); }} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-slate-700 transition-colors">
+                  <Users size={18} className="text-slate-400" /> Todos los contactos
+                </button>
+                <button onClick={() => { setShowMenu(false); fetchActiveSessions(); setActiveModal('sessions'); }} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-slate-700 transition-colors border-t border-slate-100">
+                  <Desktop size={18} className="text-blue-500" /> Sesiones Abiertas
                 </button>
                 <div className="my-1 border-t border-slate-100"></div>
                 <button onClick={() => { setShowMenu(false); setActiveModal('profile'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
