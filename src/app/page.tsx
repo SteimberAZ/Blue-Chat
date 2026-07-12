@@ -36,6 +36,7 @@ export default function BlueChatApp() {
   
   const channelsRef = useRef<Record<string, any>>({});
   const roomWritePromises = useRef<Record<string, Promise<void>>>({}); // Cola de promesas para evitar race conditions
+  const onlineUsersRef = useRef<Record<string, boolean>>({}); // Rastreo de conexión en tiempo real
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
@@ -155,6 +156,12 @@ export default function BlueChatApp() {
           const lastMsg = updated[updated.length - 1];
           setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
         });
+      });
+
+      // Mantener registro exacto de quién está online
+      channel.on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        onlineUsersRef.current[roomId] = Object.keys(state).includes(contact.id);
       });
 
       // Motor de Reintento Offline a Online (Cuando el OTRO se conecta)
@@ -297,6 +304,28 @@ export default function BlueChatApp() {
         event: 'new_message',
         payload: newMsgObj
       });
+    }
+
+    // DISPARADOR DE CORREO: Si el destinatario NO está conectado (Offline)
+    if (!onlineUsersRef.current[roomId]) {
+      const rateLimitKey = `email_throttle_${selectedContact.id}`;
+      const lastSentTime: any = await localforage.getItem(rateLimitKey);
+      const now = Date.now();
+      
+      // Límite anti-spam: Solo enviar 1 correo de notificación por hora (3600000 ms)
+      if (!lastSentTime || (now - lastSentTime > 3600000)) {
+        await localforage.setItem(rateLimitKey, now); // Actualizar reloj de bloqueo
+        
+        fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderName: currentUser.first_name,
+            recipientEmail: selectedContact.email,
+            recipientName: selectedContact.first_name
+          })
+        }).catch(err => console.error("Error disparando email:", err));
+      }
     }
 
     if (document.activeElement instanceof HTMLElement) {
