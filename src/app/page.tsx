@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -42,6 +42,7 @@ export default function BlueChatApp() {
 
   // Estado del Chat Activo
   const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [showChatOptions, setShowChatOptions] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   
@@ -584,9 +585,11 @@ export default function BlueChatApp() {
     return timeB - timeA;
   });
 
-  const filteredContacts = sortedContacts.filter(c => 
-    !hiddenChats.includes(c.id) && getDisplayName(c).toLowerCase().includes(chatSearchQuery.toLowerCase())
-  );
+  const filteredContacts = sortedContacts.filter(c => {
+    const matchesSearch = getDisplayName(c).toLowerCase().includes(chatSearchQuery.toLowerCase());
+    if (chatSearchQuery) return matchesSearch;
+    return !hiddenChats.includes(c.id);
+  });
 
   // UI: LOGIN
   if (!session || !currentUser) {
@@ -962,9 +965,25 @@ export default function BlueChatApp() {
                   <h2 className="font-bold text-slate-800 truncate">{getDisplayName(selectedContact)} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
                   <p className="text-xs text-blue-600 font-medium">En línea</p>
                 </div>
-                <button onClick={() => clearChatHistory(selectedContact.id)} className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors shrink-0" title="Eliminar Chat de Bandeja">
-                  <Trash size={22} weight="bold" />
-                </button>
+                
+                <div className="relative">
+                  <button onClick={() => setShowChatOptions(!showChatOptions)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors shrink-0">
+                    <DotsThreeVertical size={24} weight="bold" />
+                  </button>
+                  {showChatOptions && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowChatOptions(false)}></div>
+                      <div className="absolute right-0 top-12 w-48 bg-white border border-slate-100 rounded-xl shadow-xl z-50 py-1 animate-in fade-in zoom-in-95">
+                        <button 
+                          onClick={() => { setShowChatOptions(false); clearChatHistory(selectedContact.id); }} 
+                          className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 font-semibold transition-colors"
+                        >
+                          <Trash size={18} weight="bold" /> Eliminar Chat
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </header>
 
               <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative">
