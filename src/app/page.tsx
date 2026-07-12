@@ -87,6 +87,18 @@ export default function BlueChatApp() {
     }
   };
 
+  // Escuchar a nuevos usuarios que se registren en tiempo real
+  useEffect(() => {
+    if (!currentUser) return;
+    const globalChannel = supabase.channel('global_notifications');
+    globalChannel.on('broadcast', { event: 'new_user_registered' }, async () => {
+      const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', currentUser.id);
+      if (otherUsers) setContacts(otherUsers); // Actualiza la lista para que puedan recibir sus mensajes
+    }).subscribe();
+
+    return () => { supabase.removeChannel(globalChannel); };
+  }, [currentUser]);
+
   // Suscripción Global a TODOS los canales de chat
   useEffect(() => {
     if (!currentUser || contacts.length === 0) return;
@@ -356,13 +368,27 @@ export default function BlueChatApp() {
       
       if (authError) setAuthError(authError.message);
       else if (authData.user) {
-        await supabase.from('employees').insert({
+        const newProfile = {
           id: authData.user.id,
           first_name: name,
           last_name: '',
           email: email,
           role: 'Usuario BlueChat'
+        };
+        await supabase.from('employees').insert(newProfile);
+        
+        // Corregir condición de carrera que mostraba "Usuario" temporalmente
+        setCurrentUser(newProfile);
+
+        // Avisar a todos los demás clientes en la red para que agreguen al nuevo contacto al instante
+        const tempChannel = supabase.channel('global_notifications');
+        tempChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            tempChannel.send({ type: 'broadcast', event: 'new_user_registered', payload: {} });
+            setTimeout(() => supabase.removeChannel(tempChannel), 2000);
+          }
         });
+
         if (!authData.session) setAuthError('Registro exitoso. Revisa tu correo o desactiva "Confirm Email".');
       }
     }
