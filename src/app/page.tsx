@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -37,6 +37,8 @@ export default function BlueChatApp() {
   const [showMenu, setShowMenu] = useState(false);
   const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | null>(null);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+  const [contactModalSearch, setContactModalSearch] = useState('');
 
   // Estado del Chat Activo
   const [selectedContact, setSelectedContact] = useState<any>(null);
@@ -65,6 +67,9 @@ export default function BlueChatApp() {
   useEffect(() => {
     localforage.getItem('user_nicknames').then((data: any) => {
       if (data) setNicknames(data);
+    });
+    localforage.getItem('hidden_chats').then((data: any) => {
+      if (data) setHiddenChats(data);
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -283,6 +288,15 @@ export default function BlueChatApp() {
             await localforage.setItem(`unread_${roomId}`, newUnread);
             setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
           }
+          
+          setHiddenChats(prev => {
+            if (prev.includes(contact.id)) {
+              const updated = prev.filter(id => id !== contact.id);
+              localforage.setItem('hidden_chats', updated);
+              return updated;
+            }
+            return prev;
+          });
         });
       });
 
@@ -390,6 +404,26 @@ export default function BlueChatApp() {
     }
   };
 
+  const clearChatHistory = async (contactId: string) => {
+    if (!confirm("¿Seguro que deseas borrar este chat? Desaparecerá de tu lista, pero seguirán siendo contactos.")) return;
+    const roomId = getChatRoomId(currentUser.id, contactId);
+    await localforage.removeItem(`chat_history_${roomId}`);
+    await localforage.removeItem(`unread_${roomId}`);
+    
+    setChatMeta(prev => {
+      const updated = { ...prev };
+      delete updated[contactId];
+      return updated;
+    });
+    
+    const newHidden = [...hiddenChats, contactId];
+    setHiddenChats(newHidden);
+    await localforage.setItem('hidden_chats', newHidden);
+    if (selectedContact?.id === contactId) {
+      setSelectedContact(null);
+    }
+  };
+
 
   const handleSelectContact = async (contact: any) => {
     setSelectedContact(contact);
@@ -463,6 +497,15 @@ export default function BlueChatApp() {
     
     setChatMeta(prev => ({ ...prev, [selectedContact.id]: { ...prev[selectedContact.id], lastMessage: newMsgObj } }));
     setNewMessage('');
+    
+    setHiddenChats(prev => {
+      if (prev.includes(selectedContact.id)) {
+        const updated = prev.filter(id => id !== selectedContact.id);
+        localforage.setItem('hidden_chats', updated);
+        return updated;
+      }
+      return prev;
+    });
 
     if (channelsRef.current[roomId]) {
       channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: newMsgObj });
@@ -541,7 +584,9 @@ export default function BlueChatApp() {
     return timeB - timeA;
   });
 
-  const filteredContacts = sortedContacts.filter(c => getDisplayName(c).toLowerCase().includes(chatSearchQuery.toLowerCase()));
+  const filteredContacts = sortedContacts.filter(c => 
+    !hiddenChats.includes(c.id) && getDisplayName(c).toLowerCase().includes(chatSearchQuery.toLowerCase())
+  );
 
   // UI: LOGIN
   if (!session || !currentUser) {
@@ -724,17 +769,26 @@ export default function BlueChatApp() {
 
       {activeModal === 'contacts' && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="text-emerald-500" weight="fill"/> Todos los contactos</h2>
-            <div className="max-h-[60vh] overflow-y-auto space-y-2">
+            
+            <div className="bg-slate-100 rounded-xl flex items-center px-4 py-2 mb-4 shrink-0">
+              <MagnifyingGlass size={18} className="text-slate-400" />
+              <input type="text" value={contactModalSearch} onChange={e => setContactModalSearch(e.target.value)} placeholder="Buscar contacto..." className="bg-transparent border-none outline-none ml-2 text-sm w-full text-slate-700"/>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-[100px] scrollbar-thin">
                {contacts.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Aún no tienes contactos.</p> :
-                  contacts.map(contact => (
+                  [...contacts]
+                    .filter(c => getDisplayName(c).toLowerCase().includes(contactModalSearch.toLowerCase()))
+                    .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)))
+                    .map(contact => (
                     <div key={contact.id} onClick={() => { setActiveModal(null); setContactProfile(contact); }} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
-                       <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold uppercase">{contact.first_name?.[0]}</div>
-                       <div>
-                          <p className="text-sm font-semibold text-slate-800">{getDisplayName(contact)}</p>
-                          <p className="text-xs text-slate-500">#{contact.short_id || '0000'}</p>
+                       <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold uppercase shrink-0">{contact.first_name?.[0]}</div>
+                       <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{getDisplayName(contact)}</p>
+                          <p className="text-xs text-slate-500 truncate">#{contact.short_id || '0000'}</p>
                        </div>
                     </div>
                   ))
@@ -908,6 +962,9 @@ export default function BlueChatApp() {
                   <h2 className="font-bold text-slate-800 truncate">{getDisplayName(selectedContact)} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
                   <p className="text-xs text-blue-600 font-medium">En línea</p>
                 </div>
+                <button onClick={() => clearChatHistory(selectedContact.id)} className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors shrink-0" title="Eliminar Chat de Bandeja">
+                  <Trash size={22} weight="bold" />
+                </button>
               </header>
 
               <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative">
