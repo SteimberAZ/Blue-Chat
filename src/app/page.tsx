@@ -33,6 +33,11 @@ export default function BlueChatApp() {
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [editingNickname, setEditingNickname] = useState('');
   
+  // Estado de Transferencia de Dispositivo
+  const [loginStep, setLoginStep] = useState<'none' | 'checking' | 'transfer_code' | 'downloading'>('none');
+  const [transferCode, setTransferCode] = useState('');
+  const [transferStatusMsg, setTransferStatusMsg] = useState('');
+
   // Interfaz Menú
   const [showMenu, setShowMenu] = useState(false);
   const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | null>(null);
@@ -238,10 +243,34 @@ export default function BlueChatApp() {
 
     const interval = setInterval(() => fetchFriends(currentUser.id), 8000);
 
+    const deviceChannel = supabase.channel(`user-device-${currentUser.id}`);
+    deviceChannel.on('broadcast', { event: 'ping' }, () => {
+      deviceChannel.send({ type: 'broadcast', event: 'ping_reply', payload: {} });
+    });
+    deviceChannel.subscribe();
+
+    const transferSub = supabase.channel('transfers')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'device_transfers', filter: `user_id=eq.${currentUser.id}` }, async (payload) => {
+         if (payload.new.status === 'uploading') {
+            const allKeys = await localforage.keys();
+            const exportData: Record<string, any> = {};
+            for (const key of allKeys) {
+               if (key.startsWith('chat_history_') || key.startsWith('unread_')) {
+                  exportData[key] = await localforage.getItem(key);
+               }
+            }
+            await supabase.from('device_transfers').update({ payload: exportData, status: 'ready' }).eq('id', payload.new.id);
+            alert("Tu sesión ha sido transferida a un nuevo dispositivo.");
+            handleLogout();
+         }
+      }).subscribe();
+
     return () => { 
       supabase.removeChannel(channel);
       globalChannelRef.current = null;
       clearInterval(interval);
+      supabase.removeChannel(deviceChannel);
+      supabase.removeChannel(transferSub);
     };
   }, [currentUser]);
 
@@ -538,8 +567,52 @@ export default function BlueChatApp() {
     setIsLoading(true);
     
     if (isLoginMode) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setAuthError(error.message);
+      setLoginStep('checking');
+      const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setAuthError(error.message);
+        setIsLoading(false);
+        setLoginStep('none');
+        return;
+      }
+      
+      if (authData.session) {
+        const tempChannel = supabase.channel(`user-device-${authData.session.user.id}`);
+        let otherDeviceFound = false;
+
+        tempChannel.on('broadcast', { event: 'ping_reply' }, () => {
+          otherDeviceFound = true;
+        });
+
+        tempChannel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            tempChannel.send({ type: 'broadcast', event: 'ping', payload: {} });
+            
+            setTimeout(async () => {
+              supabase.removeChannel(tempChannel);
+              
+              if (otherDeviceFound) {
+                const code = Math.floor(100000 + Math.random() * 900000).toString();
+                await supabase.from('device_transfers').delete().eq('user_id', authData.session.user.id);
+                await supabase.from('device_transfers').insert({ user_id: authData.session.user.id, auth_code: code });
+                
+                await fetch('/api/notify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ recipientEmail: email, type: 'transfer', code })
+                });
+
+                setLoginStep('transfer_code');
+                setIsLoading(false);
+              } else {
+                setLoginStep('none');
+                setIsLoading(false);
+              }
+            }, 2500);
+          }
+        });
+        return;
+      }
     } else {
       if (!name.trim()) {
         setAuthError('Por favor ingresa un nombre.');
@@ -571,6 +644,36 @@ export default function BlueChatApp() {
     setIsLoading(false);
   };
 
+  const verifyTransferCode = async () => {
+     setTransferStatusMsg('Verificando código...');
+     if (!session) return;
+     const { data } = await supabase.from('device_transfers').select('*').eq('user_id', session.user.id).eq('auth_code', transferCode).single();
+     if (data) {
+        setTransferStatusMsg('Solicitando historial al otro dispositivo... (Espera unos segundos)');
+        await supabase.from('device_transfers').update({ status: 'uploading' }).eq('id', data.id);
+        setLoginStep('downloading');
+        
+        const downloadSub = supabase.channel('download_wait')
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'device_transfers', filter: `id=eq.${data.id}` }, async (payload) => {
+             if (payload.new.status === 'ready') {
+                setTransferStatusMsg('Descargando historial local...');
+                const exportData = payload.new.payload;
+                if (exportData) {
+                  for (const key in exportData) {
+                     await localforage.setItem(key, exportData[key]);
+                  }
+                }
+                await supabase.from('device_transfers').delete().eq('id', data.id);
+                supabase.removeChannel(downloadSub);
+                setLoginStep('none');
+                fetchUserData(session.user);
+             }
+          }).subscribe();
+     } else {
+        setTransferStatusMsg('Código incorrecto.');
+     }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSelectedContact(null);
@@ -590,6 +693,55 @@ export default function BlueChatApp() {
     if (chatSearchQuery) return matchesSearch;
     return !hiddenChats.includes(c.id);
   });
+
+  // UI: INTERCEPTORES DE TRANSFERENCIA
+  if (loginStep === 'checking') {
+    return (
+      <div className="min-h-[100dvh] w-full bg-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl flex flex-col items-center">
+           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+           <p className="text-slate-600 font-semibold">Verificando sesiones activas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loginStep === 'transfer_code' || loginStep === 'downloading') {
+    return (
+      <div className="min-h-[100dvh] w-full bg-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 border border-blue-100 text-center">
+           <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-200">
+             <LockKey size={32} weight="bold" />
+           </div>
+           <h2 className="text-2xl font-extrabold text-slate-800 mb-2">Sesión Activa Detectada</h2>
+           <p className="text-slate-500 text-sm mb-6">Hemos enviado un código a tu correo para autorizar la transferencia del historial de chats a este nuevo dispositivo.</p>
+           
+           {loginStep === 'transfer_code' ? (
+             <div className="space-y-4">
+               <input 
+                 type="text" 
+                 maxLength={6} 
+                 value={transferCode} 
+                 onChange={e => setTransferCode(e.target.value)} 
+                 placeholder="000000" 
+                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-2xl font-bold tracking-[10px] focus:outline-none focus:border-blue-500"
+               />
+               <button onClick={verifyTransferCode} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30">
+                 Verificar y Transferir
+               </button>
+               {transferStatusMsg && <p className="text-sm text-red-500 font-medium mt-2">{transferStatusMsg}</p>}
+             </div>
+           ) : (
+             <div className="flex flex-col items-center py-6">
+                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-blue-600 font-bold">{transferStatusMsg}</p>
+             </div>
+           )}
+           <button onClick={() => { setLoginStep('none'); handleLogout(); }} className="mt-6 text-sm text-slate-400 hover:text-slate-600 underline">Cancelar y Volver</button>
+        </div>
+      </div>
+    );
+  }
 
   // UI: LOGIN
   if (!session || !currentUser) {
