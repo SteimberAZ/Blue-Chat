@@ -29,6 +29,8 @@ export default function BlueChatApp() {
   const [searchUsername, setSearchUsername] = useState('');
   const [searchShortId, setSearchShortId] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
+  const [editingNickname, setEditingNickname] = useState('');
 
   // Estado del Chat Activo
   const [selectedContact, setSelectedContact] = useState<any>(null);
@@ -55,6 +57,10 @@ export default function BlueChatApp() {
 
   // Escuchar cambios de sesión al arrancar
   useEffect(() => {
+    localforage.getItem('user_nicknames').then((data: any) => {
+      if (data) setNicknames(data);
+    });
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchUserData(session.user);
@@ -173,6 +179,25 @@ export default function BlueChatApp() {
     const timeout = setTimeout(doSearch, 300);
     return () => clearTimeout(timeout);
   }, [searchUsername, searchShortId, showAddContact, currentUser]);
+
+  useEffect(() => {
+    if (contactProfile) {
+      setEditingNickname(nicknames[contactProfile.id] || '');
+    }
+  }, [contactProfile, nicknames]);
+
+  const saveNickname = async () => {
+    if (!contactProfile) return;
+    const updated = { ...nicknames, [contactProfile.id]: editingNickname.trim() };
+    if (!editingNickname.trim()) delete updated[contactProfile.id];
+    setNicknames(updated);
+    await localforage.setItem('user_nicknames', updated);
+  };
+
+  const getDisplayName = (contact: any) => {
+    if (!contact) return '';
+    return nicknames[contact.id] || contact.first_name;
+  };
 
   // Escuchar a actualizaciones de la red (Polling fallback + WebSocket)
   useEffect(() => {
@@ -568,6 +593,21 @@ export default function BlueChatApp() {
             </div>
             <h2 className="text-2xl font-extrabold text-slate-800 leading-tight">{contactProfile.first_name} {contactProfile.last_name}</h2>
             <p className="text-blue-600 font-bold mb-4 bg-blue-50 px-3 py-1 rounded-full mt-2 inline-block">#{contactProfile.short_id || '0000'}</p>
+            
+            <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 mb-4 flex flex-col gap-2 text-left">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Asignar Apodo</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={editingNickname} 
+                  onChange={e => setEditingNickname(e.target.value)} 
+                  placeholder="Ej: Jefe, Amor..." 
+                  className="flex-1 bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button onClick={saveNickname} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">Guardar</button>
+              </div>
+            </div>
+
             <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 mb-6 flex items-center gap-3">
                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm"><EnvelopeSimple size={18} /></div>
                <p className="text-sm text-slate-600 font-medium truncate flex-1 text-left">{contactProfile.email}</p>
@@ -698,7 +738,7 @@ export default function BlueChatApp() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-0.5">
                         <h3 className={`font-semibold truncate ${unreadCount > 0 ? 'text-slate-900' : 'text-slate-700'}`}>
-                          {contact.first_name} <span className="text-slate-400 text-xs font-normal">#{contact.short_id || '0000'}</span>
+                          {getDisplayName(contact)} <span className="text-slate-400 text-xs font-normal">#{contact.short_id || '0000'}</span>
                         </h3>
                         {lastMsg && <span className={`text-[11px] font-medium whitespace-nowrap ml-2 ${unreadCount > 0 ? 'text-green-600' : 'text-slate-400'}`}>{lastMsg.timestamp}</span>}
                       </div>
@@ -737,7 +777,7 @@ export default function BlueChatApp() {
                   {selectedContact.first_name?.[0] || 'U'}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h2 className="font-bold text-slate-800 truncate">{selectedContact.first_name} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
+                  <h2 className="font-bold text-slate-800 truncate">{getDisplayName(selectedContact)} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
                   <p className="text-xs text-blue-600 font-medium">En línea</p>
                 </div>
               </header>
