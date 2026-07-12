@@ -3,13 +3,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
   const [session, setSession] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [contacts, setContacts] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [chatMeta, setChatMeta] = useState<Record<string, any>>({});
   
   // Estado del Formulario Auth
@@ -17,9 +18,16 @@ export default function BlueChatApp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [shortId, setShortId] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Estado del modal de amigos
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [searchUsername, setSearchUsername] = useState('');
+  const [searchShortId, setSearchShortId] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   // Estado del Chat Activo
   const [selectedContact, setSelectedContact] = useState<any>(null);
@@ -36,8 +44,8 @@ export default function BlueChatApp() {
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   
   const channelsRef = useRef<Record<string, any>>({});
-  const roomWritePromises = useRef<Record<string, Promise<void>>>({}); // Cola de promesas para evitar race conditions
-  const onlineUsersRef = useRef<Record<string, boolean>>({}); // Rastreo de conexión en tiempo real
+  const roomWritePromises = useRef<Record<string, Promise<void>>>({}); 
+  const onlineUsersRef = useRef<Record<string, boolean>>({}); 
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
@@ -57,56 +65,39 @@ export default function BlueChatApp() {
       } else {
         setCurrentUser(null);
         setContacts([]);
+        setPendingRequests([]);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchUserData = async (user: any) => {
-    const userId = user.id;
-    const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
+  const fetchFriends = async (userId: string) => {
+    const { data: contactLinks } = await supabase.from('contacts').select('*').or(`sender_id.eq.${userId},receiver_id.eq.${userId}`);
     
-    if (myProfile) {
-      setCurrentUser(myProfile);
-    } else {
-      // El usuario se acaba de autenticar por primera vez tras confirmar su correo.
-      // Lo insertamos ahora que la sesión está activa y tiene permisos RLS.
-      const firstName = user.user_metadata?.first_name || 'Usuario';
-      const newProfile = {
-        id: userId,
-        first_name: firstName,
-        last_name: '',
-        email: user.email,
-        role: 'Usuario BlueChat'
-      };
-      
-      const { error } = await supabase.from('employees').insert(newProfile);
-      
-      if (!error) {
-        setCurrentUser(newProfile);
-        
-        // Avisar a los demás clientes que hay un usuario nuevo
-        const tempChannel = supabase.channel('global_notifications');
-        tempChannel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            tempChannel.send({ type: 'broadcast', event: 'new_user_registered', payload: {} });
-            setTimeout(() => supabase.removeChannel(tempChannel), 2000);
-          }
-        });
-      } else {
-        // Fallback en caso de error
-        setCurrentUser({ id: userId, first_name: firstName, last_name: '' });
-      }
-    }
+    if (contactLinks) {
+      const acceptedIds = contactLinks.filter((c:any) => c.status === 'accepted').map((c:any) => c.sender_id === userId ? c.receiver_id : c.sender_id);
+      const pendingSenderIds = contactLinks.filter((c:any) => c.status === 'pending' && c.receiver_id === userId).map((c:any) => c.sender_id);
 
-    const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', userId);
-    if (otherUsers) {
-      setContacts(otherUsers);
-      
-      // Cargar metadatos para la bandeja de entrada
+      let acceptedUsers: any[] = [];
+      if (acceptedIds.length > 0) {
+        const { data } = await supabase.from('employees').select('*').in('id', acceptedIds);
+        acceptedUsers = data || [];
+        setContacts(prev => prev.length !== acceptedUsers.length ? acceptedUsers : prev);
+      } else {
+        setContacts([]);
+      }
+
+      if (pendingSenderIds.length > 0) {
+        const { data: pendingUsers } = await supabase.from('employees').select('*').in('id', pendingSenderIds);
+        if (pendingUsers) setPendingRequests(prev => prev.length !== pendingUsers.length ? pendingUsers : prev);
+      } else {
+        setPendingRequests([]);
+      }
+
+      // Cargar metadatos para la bandeja de entrada de los usuarios aceptados
       const metaObj: Record<string, any> = {};
-      for (const user of otherUsers) {
+      for (const user of acceptedUsers) {
         const roomId = getChatRoomId(userId, user.id);
         const history: any = await localforage.getItem(`chat_history_${roomId}`);
         const unread: any = await localforage.getItem(`unread_${roomId}`);
@@ -120,26 +111,67 @@ export default function BlueChatApp() {
     }
   };
 
-  // Escuchar a nuevos usuarios que se registren
+  const fetchUserData = async (user: any) => {
+    const userId = user.id;
+    const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
+    
+    if (myProfile) {
+      setCurrentUser(myProfile);
+    } else {
+      const firstName = user.user_metadata?.first_name || 'Usuario';
+      const userShortId = user.user_metadata?.short_id || '0000';
+      const newProfile = {
+        id: userId,
+        first_name: firstName,
+        last_name: '',
+        email: user.email,
+        role: 'Usuario BlueChat',
+        short_id: userShortId
+      };
+      
+      const { error } = await supabase.from('employees').insert(newProfile);
+      
+      if (!error) {
+        setCurrentUser(newProfile);
+      } else {
+        setCurrentUser({ id: userId, first_name: firstName, last_name: '', short_id: userShortId });
+      }
+    }
+
+    await fetchFriends(userId);
+  };
+
+  // Autocompletado de Búsqueda
+  useEffect(() => {
+    if (!showAddContact || !currentUser) return;
+    if (searchUsername.length < 1 && searchShortId.length === 0) {
+      setSearchResults([]);
+      return;
+    }
+    
+    const doSearch = async () => {
+      let query = supabase.from('employees').select('*').neq('id', currentUser.id);
+      if (searchUsername) query = query.ilike('first_name', `%${searchUsername}%`);
+      if (searchShortId) query = query.eq('short_id', searchShortId);
+      
+      const { data } = await query.limit(5);
+      setSearchResults(data || []);
+    };
+    
+    const timeout = setTimeout(doSearch, 300);
+    return () => clearTimeout(timeout);
+  }, [searchUsername, searchShortId, showAddContact, currentUser]);
+
+  // Escuchar a actualizaciones de la red (Polling fallback + WebSocket)
   useEffect(() => {
     if (!currentUser) return;
     
-    // 1. Vía WebSockets (Rápido pero sensible a microcortes de red)
     const globalChannel = supabase.channel('global_notifications');
-    globalChannel.on('broadcast', { event: 'new_user_registered' }, async () => {
-      const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', currentUser.id);
-      if (otherUsers) {
-        setContacts(prev => prev.length !== otherUsers.length ? otherUsers : prev);
-      }
+    globalChannel.on('broadcast', { event: 'network_update' }, () => {
+      fetchFriends(currentUser.id);
     }).subscribe();
 
-    // 2. Vía Polling (Red de seguridad antibalas: escanear cada 8 segundos)
-    const interval = setInterval(async () => {
-      const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', currentUser.id);
-      if (otherUsers) {
-        setContacts(prev => prev.length !== otherUsers.length ? otherUsers : prev);
-      }
-    }, 8000);
+    const interval = setInterval(() => fetchFriends(currentUser.id), 8000);
 
     return () => { 
       supabase.removeChannel(globalChannel); 
@@ -147,48 +179,39 @@ export default function BlueChatApp() {
     };
   }, [currentUser]);
 
-  // Suscripción Global a TODOS los canales de chat
+  // Suscripción Global a canales de chat
   useEffect(() => {
     if (!currentUser || contacts.length === 0) return;
 
     contacts.forEach(contact => {
       const roomId = getChatRoomId(currentUser.id, contact.id);
-      
-      // Evitar suscripciones duplicadas
       if (channelsRef.current[roomId]) return;
 
       const channel = supabase.channel(`chat-${roomId}`, {
         config: { presence: { key: currentUser.id } }
       });
 
-      // Recibir un mensaje
       channel.on('broadcast', { event: 'new_message' }, (payload) => {
         const incomingMsg = payload.payload;
-        
-        // Auto-ACK
         if (incomingMsg.senderId !== currentUser.id) {
           channel.send({ type: 'broadcast', event: 'ack', payload: { messageId: incomingMsg.id } });
         }
 
-        // Ejecución Secuencial (Cola de Promesas) para evitar desorden y pérdida de mensajes simultáneos
         const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
         roomWritePromises.current[roomId] = prevPromise.then(async () => {
           let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
           if (history.find((m:any) => m.id === incomingMsg.id)) return;
           
           history = [...history, incomingMsg];
-          // ORDENAR ESTRICTAMENTE POR FECHA
           history.sort((a: any, b: any) => a.createdAt - b.createdAt);
           
           await localforage.setItem(`chat_history_${roomId}`, history);
 
-          // Si este chat está activo en pantalla, actualiza los mensajes y resetea no leídos
           if (selectedContactRef.current?.id === contact.id) {
             setMessages(history);
             await localforage.setItem(`unread_${roomId}`, 0);
             setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
           } else {
-            // Chat inactivo: sumar contador de no leídos
             const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
             const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
             await localforage.setItem(`unread_${roomId}`, newUnread);
@@ -197,61 +220,46 @@ export default function BlueChatApp() {
         });
       });
 
-      // Recibir un ACK
       channel.on('broadcast', { event: 'ack' }, (payload) => {
         const { messageId } = payload.payload;
-        
         const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
         roomWritePromises.current[roomId] = prevPromise.then(async () => {
           let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
-          
           const updated = history.map((m:any) => m.id === messageId ? { ...m, status: 'delivered' } : m);
           await localforage.setItem(`chat_history_${roomId}`, updated);
           
-          if (selectedContactRef.current?.id === contact.id) {
-            setMessages(updated);
-          }
+          if (selectedContactRef.current?.id === contact.id) setMessages(updated);
           
-          // Actualizar bandeja
           const lastMsg = updated[updated.length - 1];
           setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
         });
       });
 
-      // Mantener registro exacto de quién está online
       channel.on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         onlineUsersRef.current[roomId] = Object.keys(state).includes(contact.id);
       });
 
-      // Motor de Reintento Offline a Online (Cuando el OTRO se conecta)
       channel.on('presence', { event: 'join' }, ({ key }) => {
         if (key !== currentUser.id) {
           setTimeout(() => {
             localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
-              pending.forEach((pMsg: any) => {
-                channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg });
-              });
+              pending.forEach((pMsg: any) => channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg }));
             });
-          }, 800); // Delay de seguridad para que su WebSocket esté listo para escuchar
+          }, 800);
         }
       });
 
-      // Cuando YO me conecto (o recupero mi internet tras estar offline)
       channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ online_at: new Date().toISOString() });
-          
-          // Reintentar mis propios mensajes que se quedaron pendientes mientras yo no tenía WiFi
           setTimeout(() => {
             localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
-              pending.forEach((pMsg: any) => {
-                channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg });
-              });
+              pending.forEach((pMsg: any) => channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg }));
             });
           }, 800);
         }
@@ -266,23 +274,57 @@ export default function BlueChatApp() {
     };
   }, [currentUser, contacts]);
 
+  const notifyNetwork = () => {
+    const tempChannel = supabase.channel('global_notifications');
+    tempChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        tempChannel.send({ type: 'broadcast', event: 'network_update', payload: {} });
+        setTimeout(() => supabase.removeChannel(tempChannel), 1000);
+      }
+    });
+  };
+
+  const sendFriendRequest = async (targetId: string) => {
+    const { data: existing } = await supabase.from('contacts').select('*')
+      .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`);
+    
+    if (existing && existing.length > 0) {
+       alert("Ya existe una solicitud o amistad con este usuario.");
+       return;
+    }
+
+    await supabase.from('contacts').insert({ sender_id: currentUser.id, receiver_id: targetId, status: 'pending' });
+    notifyNetwork();
+    alert("Solicitud enviada!");
+    setShowAddContact(false);
+    setSearchUsername('');
+    setSearchShortId('');
+  };
+
+  const acceptRequest = async (senderId: string) => {
+    await supabase.from('contacts').update({ status: 'accepted' }).match({ sender_id: senderId, receiver_id: currentUser.id });
+    notifyNetwork();
+    fetchFriends(currentUser.id);
+  };
+
+  const rejectRequest = async (senderId: string) => {
+    await supabase.from('contacts').delete().match({ sender_id: senderId, receiver_id: currentUser.id });
+    setPendingRequests(prev => prev.filter(u => u.id !== senderId));
+  };
+
 
   const handleSelectContact = async (contact: any) => {
     setSelectedContact(contact);
     const roomId = getChatRoomId(currentUser.id, contact.id);
     const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
     
-    prevMessagesLength.current = 0; // Reset para el nuevo chat
+    prevMessagesLength.current = 0; 
     setMessages(history);
     setShowScrollButton(false);
     setUnreadInChat(0);
     
-    // Al abrir el chat, los no leídos se vuelven 0
     await localforage.setItem(`unread_${roomId}`, 0);
-    setChatMeta(prev => ({
-      ...prev,
-      [contact.id]: { ...prev[contact.id], unreadCount: 0 }
-    }));
+    setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], unreadCount: 0 } }));
   };
 
   const handleScroll = () => {
@@ -290,17 +332,12 @@ export default function BlueChatApp() {
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
     const isNotAtBottom = scrollHeight - scrollTop - clientHeight > 150;
     setShowScrollButton(isNotAtBottom);
-    if (!isNotAtBottom) {
-      setUnreadInChat(0);
-    }
+    if (!isNotAtBottom) setUnreadInChat(0);
   };
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
       setUnreadInChat(0);
       setShowScrollButton(false);
     }
@@ -308,25 +345,20 @@ export default function BlueChatApp() {
 
   useEffect(() => {
     if (!chatContainerRef.current || messages.length === 0) return;
-    
     const isNewMessage = messages.length > prevMessagesLength.current && prevMessagesLength.current > 0;
     prevMessagesLength.current = messages.length;
-
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
     const lastMsg = messages[messages.length - 1];
     const isMine = lastMsg?.senderId === currentUser?.id;
 
     if (isNewMessage) {
-      // Si el mensaje es mío o estábamos casi abajo, autoscroll
       if (isMine || (scrollHeight - scrollTop - clientHeight < 400)) {
-        setTimeout(scrollToBottom, 50); // delay render
+        setTimeout(scrollToBottom, 50); 
       } else {
-        // Mensaje de otro mientras estamos arriba
         setUnreadInChat(prev => prev + 1);
         setShowScrollButton(true);
       }
     } else if (messages.length > 0 && scrollTop === 0) {
-      // Carga inicial: ir al fondo directo sin animar
       chatContainerRef.current.scrollTop = scrollHeight;
     }
   }, [messages, currentUser]);
@@ -341,7 +373,7 @@ export default function BlueChatApp() {
       senderId: currentUser.id,
       content: newMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdAt: Date.now(), // Clave para ordenar los chats matemáticamente
+      createdAt: Date.now(), 
       status: 'pending'
     };
 
@@ -351,40 +383,24 @@ export default function BlueChatApp() {
       return updatedMessages;
     });
     
-    setChatMeta(prev => ({
-      ...prev,
-      [selectedContact.id]: { ...prev[selectedContact.id], lastMessage: newMsgObj }
-    }));
-    
+    setChatMeta(prev => ({ ...prev, [selectedContact.id]: { ...prev[selectedContact.id], lastMessage: newMsgObj } }));
     setNewMessage('');
 
     if (channelsRef.current[roomId]) {
-      channelsRef.current[roomId].send({
-        type: 'broadcast',
-        event: 'new_message',
-        payload: newMsgObj
-      });
+      channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: newMsgObj });
     }
 
-    // DISPARADOR DE CORREO: Si el destinatario NO está conectado (Offline)
     if (!onlineUsersRef.current[roomId]) {
       const rateLimitKey = `email_throttle_${selectedContact.id}`;
       const lastSentTime: any = await localforage.getItem(rateLimitKey);
       const now = Date.now();
-      
-      // Límite anti-spam: Solo enviar 1 correo de notificación por hora (3600000 ms)
       if (!lastSentTime || (now - lastSentTime > 3600000)) {
-        await localforage.setItem(rateLimitKey, now); // Actualizar reloj de bloqueo
-        
+        await localforage.setItem(rateLimitKey, now); 
         fetch('/api/notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            senderName: currentUser.first_name,
-            recipientEmail: selectedContact.email,
-            recipientName: selectedContact.first_name
-          })
-        }).catch(err => console.error("Error disparando email:", err));
+          body: JSON.stringify({ senderName: currentUser.first_name, recipientEmail: selectedContact.email, recipientName: selectedContact.first_name })
+        }).catch(err => console.error(err));
       }
     }
 
@@ -408,19 +424,23 @@ export default function BlueChatApp() {
         setIsLoading(false);
         return;
       }
+      if (shortId.length !== 4) {
+        setAuthError('El ID de usuario debe tener exactamente 4 caracteres.');
+        setIsLoading(false);
+        return;
+      }
       
       const { data: authData, error: authError } = await supabase.auth.signUp({ 
         email, 
         password,
         options: { 
           emailRedirectTo: `${window.location.origin}/`,
-          data: { first_name: name } // Guardar el nombre en Supabase Auth para que sobreviva al correo
+          data: { first_name: name, short_id: shortId } 
         }
       });
       
       if (authError) setAuthError(authError.message);
       else if (authData.user) {
-        // La inserción en BD pública se hará de forma segura cuando el usuario confirme el correo y haga login real
         if (!authData.session) {
           setAuthSuccess('Registro exitoso. Revisa tu bandeja de entrada o SPAM para confirmar tu correo.');
         }
@@ -435,7 +455,6 @@ export default function BlueChatApp() {
     setMessages([]);
   };
 
-  // Ordenar contactos: los más recientes arriba
   const sortedContacts = [...contacts].sort((a, b) => {
     const metaA = chatMeta[a.id]?.lastMessage;
     const metaB = chatMeta[b.id]?.lastMessage;
@@ -444,9 +463,7 @@ export default function BlueChatApp() {
     return timeB - timeA;
   });
 
-  // ==========================================
-  // UI: PANTALLA DE LOGIN
-  // ==========================================
+  // UI: LOGIN
   if (!session || !currentUser) {
     return (
       <div className="min-h-[100dvh] w-full overflow-hidden bg-blue-50 flex items-center justify-center p-4 font-sans">
@@ -461,11 +478,20 @@ export default function BlueChatApp() {
           
           <form onSubmit={handleAuth} className="space-y-4">
             {!isLoginMode && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+              <div className="flex gap-2">
+                <div className="flex-[2]">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 chars)</label>
+                  <div className="relative">
+                    <IdentificationCard className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value)} placeholder="e.g. 1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-8 pr-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors text-center uppercase" />
+                  </div>
                 </div>
               </div>
             )}
@@ -501,14 +527,52 @@ export default function BlueChatApp() {
     );
   }
 
-  // ==========================================
-  // UI: PANTALLA DE CHAT
-  // ==========================================
+  // UI: CHAT
   return (
     <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
-      <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden">
-        
-        {/* PANEL IZQUIERDO: Contactos */}
+      
+      {/* Modal Añadir Contacto */}
+      {showAddContact && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
+            <button onClick={() => setShowAddContact(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Añadir Contacto</h2>
+            <div className="flex gap-2 mb-4">
+               <div className="flex-[2]">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Usuario (opcional)</label>
+                  <input type="text" value={searchUsername} onChange={e => setSearchUsername(e.target.value)} placeholder="Ej: Alex" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500" />
+               </div>
+               <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 chars)</label>
+                  <input type="text" maxLength={4} value={searchShortId} onChange={e => setSearchShortId(e.target.value)} placeholder="1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-center uppercase" />
+               </div>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-2">
+               {searchResults.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">Escribe un nombre o ID para buscar.</p>
+               ) : (
+                  searchResults.map(user => (
+                    <div key={user.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{user.first_name?.[0]}</div>
+                          <div>
+                             <p className="text-sm font-semibold text-slate-800">{user.first_name}</p>
+                             <p className="text-xs text-slate-500">#{user.short_id || '0000'}</p>
+                          </div>
+                       </div>
+                       <button onClick={() => sendFriendRequest(user.id)} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition-colors">
+                          <UserPlus size={18} />
+                       </button>
+                    </div>
+                  ))
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden relative">
         <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           <header className="h-[72px] bg-blue-600 flex items-center justify-between px-4 text-white">
             <div className="flex items-center gap-3">
@@ -516,7 +580,7 @@ export default function BlueChatApp() {
                 {currentUser.first_name?.[0] || 'U'}
               </div>
               <div className="flex flex-col">
-                <span className="font-semibold tracking-wide text-sm">{currentUser.first_name}</span>
+                <span className="font-semibold tracking-wide text-sm">{currentUser.first_name} <span className="opacity-70 font-normal">#{currentUser.short_id || '0000'}</span></span>
                 <span className="text-[10px] text-blue-200">{currentUser.email}</span>
               </div>
             </div>
@@ -531,10 +595,40 @@ export default function BlueChatApp() {
               <input type="text" placeholder="Buscar un chat..." className="bg-transparent border-none outline-none ml-3 text-sm w-full text-slate-700 placeholder-slate-400"/>
             </div>
           </div>
+          
+          <div className="px-3 pb-3 border-b border-slate-100">
+             <button onClick={() => setShowAddContact(true)} className="w-full py-2 bg-blue-50 text-blue-600 font-semibold rounded-lg text-sm hover:bg-blue-100 flex items-center justify-center gap-2 transition-colors">
+               <UserPlus size={18} weight="bold" /> Añadir Contacto
+             </button>
+          </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin">
+            {pendingRequests.length > 0 && (
+               <div className="bg-orange-50/50 border-b border-orange-100">
+                  <div className="px-4 py-2 text-[11px] font-bold text-orange-600 uppercase tracking-wider">Solicitudes Pendientes ({pendingRequests.length})</div>
+                  {pendingRequests.map(req => (
+                    <div key={req.id} className="flex items-center justify-between px-4 py-3 bg-white border-b border-orange-50 last:border-b-0">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold text-sm uppercase">{req.first_name?.[0]}</div>
+                          <div>
+                             <div className="text-sm font-semibold text-slate-800">{req.first_name} <span className="text-slate-400 font-normal">#{req.short_id || '0000'}</span></div>
+                          </div>
+                       </div>
+                       <div className="flex items-center gap-2">
+                          <button onClick={() => acceptRequest(req.id)} className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center hover:bg-green-200 transition-colors shadow-sm"><CheckCircle weight="fill" size={20} /></button>
+                          <button onClick={() => rejectRequest(req.id)} className="w-8 h-8 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors shadow-sm"><X weight="bold" size={16} /></button>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            )}
+
             {sortedContacts.length === 0 ? (
-              <div className="p-6 text-center text-sm text-slate-400">Aún no hay otros usuarios registrados en la plataforma.</div>
+              <div className="p-8 text-center flex flex-col items-center">
+                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4"><UserPlus size={32} className="text-slate-400"/></div>
+                 <p className="text-sm text-slate-500 font-medium">Aún no tienes contactos.</p>
+                 <p className="text-xs text-slate-400 mt-1">Busca amigos usando su ID y añádelos para empezar a chatear.</p>
+              </div>
             ) : (
               sortedContacts.map(contact => {
                 const meta = chatMeta[contact.id];
@@ -542,33 +636,21 @@ export default function BlueChatApp() {
                 const unreadCount = meta?.unreadCount || 0;
                 
                 return (
-                  <div 
-                    key={contact.id}
-                    onClick={() => handleSelectContact(contact)}
-                    className={`flex items-center gap-4 p-4 cursor-pointer transition-colors border-b border-slate-50
-                      ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}
-                    `}
-                  >
+                  <div key={contact.id} onClick={() => handleSelectContact(contact)} className={`flex items-center gap-4 p-4 cursor-pointer transition-colors border-b border-slate-50 ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                     <div className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase">
                       {contact.first_name?.[0] || 'U'}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-0.5">
                         <h3 className={`font-semibold truncate ${unreadCount > 0 ? 'text-slate-900' : 'text-slate-700'}`}>
-                          {contact.first_name} {contact.last_name}
+                          {contact.first_name} <span className="text-slate-400 text-xs font-normal">#{contact.short_id || '0000'}</span>
                         </h3>
-                        {lastMsg && (
-                          <span className={`text-[11px] font-medium whitespace-nowrap ml-2 ${unreadCount > 0 ? 'text-green-600' : 'text-slate-400'}`}>
-                            {lastMsg.timestamp}
-                          </span>
-                        )}
+                        {lastMsg && <span className={`text-[11px] font-medium whitespace-nowrap ml-2 ${unreadCount > 0 ? 'text-green-600' : 'text-slate-400'}`}>{lastMsg.timestamp}</span>}
                       </div>
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-1 min-w-0 flex-1">
                           {lastMsg && lastMsg.senderId === currentUser.id && (
-                            lastMsg.status === 'delivered' 
-                              ? <Checks size={14} weight="bold" className="text-blue-500 flex-shrink-0" />
-                              : <Check size={14} weight="bold" className="text-slate-400 flex-shrink-0" />
+                            lastMsg.status === 'delivered' ? <Checks size={14} weight="bold" className="text-blue-500 flex-shrink-0" /> : <Check size={14} weight="bold" className="text-slate-400 flex-shrink-0" />
                           )}
                           <p className={`text-[13px] truncate ${unreadCount > 0 ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
                             {lastMsg ? lastMsg.content : 'Toca para enviar un mensaje'}
@@ -588,37 +670,27 @@ export default function BlueChatApp() {
           </div>
         </aside>
 
-        {/* PANEL DERECHO: Chat Activo */}
         <main className={`flex-1 flex-col min-w-0 relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
           {selectedContact ? (
             <>
               <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-6 gap-4 z-10 shadow-sm">
-                <button 
-                  className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full"
-                  onClick={() => setSelectedContact(null)}
-                >
-                  &larr;
-                </button>
+                <button className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)}>&larr;</button>
                 <div className="w-10 h-10 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg shadow-sm uppercase">
                   {selectedContact.first_name?.[0] || 'U'}
                 </div>
                 <div>
-                  <h2 className="font-bold text-slate-800">{selectedContact.first_name} {selectedContact.last_name}</h2>
+                  <h2 className="font-bold text-slate-800">{selectedContact.first_name} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
                   <p className="text-xs text-blue-600 font-medium">En línea</p>
                 </div>
               </header>
 
-              <div 
-                ref={chatContainerRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative"
-              >
+              <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative">
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
                 
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="bg-white/80 backdrop-blur px-4 py-2 rounded-xl shadow-sm text-sm text-slate-500 font-medium z-10 relative">
-                      Los mensajes están cifrados localmente de extremo a extremo.
+                      Has iniciado un chat seguro y privado con {selectedContact.first_name}.
                     </div>
                   </div>
                 ) : (
@@ -633,9 +705,7 @@ export default function BlueChatApp() {
                           <div className={`flex items-center justify-end gap-1 mt-1 ${isMine ? 'text-blue-200' : 'text-slate-400'}`}>
                             <span className="text-[10px] font-medium">{msg.timestamp}</span>
                             {isMine && (
-                              msg.status === 'delivered'
-                                ? <Checks size={14} weight="bold" className="text-blue-300" />
-                                : <Check size={14} weight="bold" className="text-blue-300 opacity-70" />
+                              msg.status === 'delivered' ? <Checks size={14} weight="bold" className="text-blue-300" /> : <Check size={14} weight="bold" className="text-blue-300 opacity-70" />
                             )}
                           </div>
                         </div>
@@ -645,32 +715,17 @@ export default function BlueChatApp() {
                 )}
               </div>
 
-              {/* Botón Flotante para hacer Scroll Abajo */}
               {showScrollButton && (
-                <button
-                  onClick={scrollToBottom}
-                  className="absolute bottom-28 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group"
-                  aria-label="Ir al último mensaje"
-                >
+                <button onClick={scrollToBottom} className="absolute bottom-28 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group" aria-label="Ir al último mensaje">
                   <CaretDown size={22} weight="bold" className="group-hover:text-blue-600 transition-colors" />
-                  {unreadInChat > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center border-2 border-white shadow-sm animate-bounce">
-                      {unreadInChat}
-                    </span>
-                  )}
+                  {unreadInChat > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center border-2 border-white shadow-sm animate-bounce">{unreadInChat}</span>}
                 </button>
               )}
 
               <footer className="bg-white border-t border-slate-200 p-3 md:p-4 z-10 relative">
                 <form onSubmit={handleSendMessage} className="flex items-center gap-3">
                   <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 py-2 md:py-3 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
-                    <input 
-                      type="text" 
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      placeholder="Escribe un mensaje..."
-                      className="flex-1 bg-transparent border-none outline-none text-slate-700 text-base placeholder-slate-400"
-                    />
+                    <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Escribe un mensaje..." className="flex-1 bg-transparent border-none outline-none text-slate-700 text-base placeholder-slate-400" />
                   </div>
                   <button type="submit" disabled={!newMessage.trim()} className="w-10 h-10 md:w-12 md:h-12 flex-shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none">
                     <PaperPlaneRight size={20} weight="fill" />
@@ -684,9 +739,7 @@ export default function BlueChatApp() {
                 <ChatIcon className="w-12 h-12 text-blue-500" />
               </div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2">BlueChat para Web</h2>
-              <p className="text-slate-500 max-w-md">
-                Selecciona un chat en la barra lateral para comenzar a enviar mensajes de forma privada y local.
-              </p>
+              <p className="text-slate-500 max-w-md">Selecciona un chat en la barra lateral para comenzar a enviar mensajes de forma privada y local.</p>
             </div>
           )}
         </main>
