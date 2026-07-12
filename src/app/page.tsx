@@ -177,6 +177,11 @@ export default function BlueChatApp() {
         payload: newMsgObj
       });
     }
+
+    // Ocultar teclado en móviles quitando el foco del input
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
   };
 
   // ==========================================
