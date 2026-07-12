@@ -295,15 +295,7 @@ export default function BlueChatApp() {
     };
   }, [currentUser, contacts]);
 
-  const notifyNetwork = () => {
-    const tempChannel = supabase.channel('global_notifications');
-    tempChannel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        tempChannel.send({ type: 'broadcast', event: 'network_update', payload: {} });
-        setTimeout(() => supabase.removeChannel(tempChannel), 1000);
-      }
-    });
-  };
+
 
   const sendFriendRequest = async (targetId: string) => {
     const { data: existing } = await supabase.from('contacts').select('*')
