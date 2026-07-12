@@ -189,7 +189,7 @@ export default function BlueChatApp() {
   const saveNickname = async () => {
     if (!contactProfile) return;
     const updated = { ...nicknames, [contactProfile.id]: editingNickname.trim() };
-    if (!editingNickname.trim()) delete updated[contactProfile.id];
+    if (!editingNickname.trim()) delete updated[String(contactProfile.id)];
     setNicknames(updated);
     await localforage.setItem('user_nicknames', updated);
   };
