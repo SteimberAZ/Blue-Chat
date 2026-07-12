@@ -396,7 +396,6 @@ export default function BlueChatApp() {
                       onChange={(e) => setNewMessage(e.target.value)}
                       placeholder="Escribe un mensaje..."
                       className="flex-1 bg-transparent border-none outline-none text-slate-700 text-base placeholder-slate-400"
-                      autoFocus
                     />
                   </div>
                   <button 
