@@ -62,6 +62,10 @@ export default function BlueChatApp() {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
   const prevMessagesLength = useRef(0);
+  const [isTyping, setIsTyping] = useState(false);
+  
+  // Presencia
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   
   // Refs para evitar problemas de stale-closures en los listeners globales
   const selectedContactRef = useRef<any>(null);
@@ -348,11 +352,29 @@ export default function BlueChatApp() {
     });
     deviceChannel.subscribe();
 
+    const presenceChannel = supabase.channel('global_presence');
+    presenceChannel.on('presence', { event: 'sync' }, () => {
+       const state = presenceChannel.presenceState();
+       const onlineSet = new Set<string>();
+       for (const id in state) {
+          for (const presence of (state[id] as any[])) {
+             if (presence.user_id) onlineSet.add(presence.user_id);
+          }
+       }
+       setOnlineUsers(onlineSet);
+    });
+    presenceChannel.subscribe(async (status) => {
+       if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ user_id: currentUser.id });
+       }
+    });
+
     return () => { 
       supabase.removeChannel(channel);
       globalChannelRef.current = null;
       clearInterval(interval);
       supabase.removeChannel(deviceChannel);
+      supabase.removeChannel(presenceChannel);
     };
   }, [currentUser]);
 
@@ -1026,7 +1048,14 @@ export default function BlueChatApp() {
                     .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)))
                     .map(contact => (
                     <div key={contact.id} onClick={() => { setActiveModal(null); setContactProfile(contact); }} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
-                       <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold uppercase shrink-0">{contact.first_name?.[0]}</div>
+                       <div className="relative">
+                        <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold text-xl uppercase shrink-0">
+                          {contact.first_name?.[0]}
+                        </div>
+                        {onlineUsers.has(contact.id) && (
+                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full"></div>
+                        )}
+                      </div>
                        <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-800 truncate">{getDisplayName(contact)}</p>
                           <p className="text-xs text-slate-500 truncate">#{contact.short_id || '0000'}</p>
@@ -1188,9 +1217,14 @@ export default function BlueChatApp() {
                   <div key={contact.id} onClick={() => handleSelectContact(contact)} className={`flex items-center gap-4 p-4 cursor-pointer transition-colors border-b border-slate-50 ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                     <div 
                       onClick={(e) => { e.stopPropagation(); setContactProfile(contact); }}
-                      className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase hover:ring-4 hover:ring-blue-200 transition-all"
+                      className="relative w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase hover:ring-4 hover:ring-blue-200 transition-all"
                     >
-                      {contact.first_name?.[0] || 'U'}
+                      <div className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold">
+                        {contact.first_name?.[0] || 'U'}
+                      </div>
+                      {onlineUsers.has(contact.id) && (
+                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full"></div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-0.5">
@@ -1234,8 +1268,20 @@ export default function BlueChatApp() {
                   {selectedContact.first_name?.[0] || 'U'}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h2 className="font-bold text-slate-800 truncate">{getDisplayName(selectedContact)} <span className="text-slate-400 text-sm font-normal">#{selectedContact.short_id || '0000'}</span></h2>
-                  <p className="text-xs text-blue-600 font-medium">En línea</p>
+                  <div className="flex flex-col">
+                    <span className="font-bold text-slate-800 text-lg leading-tight">{getDisplayName(selectedContact)}</span>
+                    {onlineUsers.has(selectedContact.id) ? (
+                      <span className="text-sm text-emerald-500 font-medium flex items-center gap-1">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                        En línea
+                      </span>
+                    ) : (
+                      <span className="text-sm text-slate-400 font-medium flex items-center gap-1">
+                        <div className="w-2 h-2 bg-slate-300 rounded-full"></div>
+                        Desconectado
+                      </span>
+                    )}
+                 </div>
                 </div>
                 
                 <div className="relative">
