@@ -17,7 +17,8 @@ export default function BlueChatApp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [authError, setAuthError] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Estado del Chat Activo
@@ -394,7 +395,8 @@ export default function BlueChatApp() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError('');
+    setAuthError(null);
+    setAuthSuccess(null);
     setIsLoading(true);
     
     if (isLoginMode) {
@@ -420,7 +422,7 @@ export default function BlueChatApp() {
       else if (authData.user) {
         // La inserción en BD pública se hará de forma segura cuando el usuario confirme el correo y haga login real
         if (!authData.session) {
-          setAuthError('Registro exitoso. Revisa tu bandeja de entrada o SPAM para confirmar tu correo.');
+          setAuthSuccess('Registro exitoso. Revisa tu bandeja de entrada o SPAM para confirmar tu correo.');
         }
       }
     }
@@ -482,6 +484,7 @@ export default function BlueChatApp() {
               </div>
             </div>
             {authError && <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100">{authError}</div>}
+            {authSuccess && <div className="p-3 bg-emerald-50 text-emerald-600 text-xs rounded-xl border border-emerald-100">{authSuccess}</div>}
             <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30 disabled:opacity-70 mt-2">
               {isLoading ? 'Procesando...' : (isLoginMode ? 'Iniciar Sesión' : 'Registrarse')}
             </button>
