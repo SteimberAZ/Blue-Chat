@@ -35,6 +35,7 @@ export default function BlueChatApp() {
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
   
   const channelsRef = useRef<Record<string, any>>({});
+  const roomWritePromises = useRef<Record<string, Promise<void>>>({}); // Cola de promesas para evitar race conditions
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
@@ -100,7 +101,7 @@ export default function BlueChatApp() {
       });
 
       // Recibir un mensaje
-      channel.on('broadcast', { event: 'new_message' }, async (payload) => {
+      channel.on('broadcast', { event: 'new_message' }, (payload) => {
         const incomingMsg = payload.payload;
         
         // Auto-ACK
@@ -108,41 +109,52 @@ export default function BlueChatApp() {
           channel.send({ type: 'broadcast', event: 'ack', payload: { messageId: incomingMsg.id } });
         }
 
-        let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
-        if (history.find((m:any) => m.id === incomingMsg.id)) return;
-        
-        history = [...history, incomingMsg];
-        await localforage.setItem(`chat_history_${roomId}`, history);
+        // Ejecución Secuencial (Cola de Promesas) para evitar desorden y pérdida de mensajes simultáneos
+        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+        roomWritePromises.current[roomId] = prevPromise.then(async () => {
+          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+          if (history.find((m:any) => m.id === incomingMsg.id)) return;
+          
+          history = [...history, incomingMsg];
+          // ORDENAR ESTRICTAMENTE POR FECHA
+          history.sort((a: any, b: any) => a.createdAt - b.createdAt);
+          
+          await localforage.setItem(`chat_history_${roomId}`, history);
 
-        // Si este chat está activo en pantalla, actualiza los mensajes y resetea no leídos
-        if (selectedContactRef.current?.id === contact.id) {
-          setMessages(history);
-          await localforage.setItem(`unread_${roomId}`, 0);
-          setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
-        } else {
-          // Chat inactivo: sumar contador de no leídos
-          const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
-          const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
-          await localforage.setItem(`unread_${roomId}`, newUnread);
-          setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
-        }
+          // Si este chat está activo en pantalla, actualiza los mensajes y resetea no leídos
+          if (selectedContactRef.current?.id === contact.id) {
+            setMessages(history);
+            await localforage.setItem(`unread_${roomId}`, 0);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
+          } else {
+            // Chat inactivo: sumar contador de no leídos
+            const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+            const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
+            await localforage.setItem(`unread_${roomId}`, newUnread);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
+          }
+        });
       });
 
       // Recibir un ACK
-      channel.on('broadcast', { event: 'ack' }, async (payload) => {
+      channel.on('broadcast', { event: 'ack' }, (payload) => {
         const { messageId } = payload.payload;
-        let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
         
-        const updated = history.map((m:any) => m.id === messageId ? { ...m, status: 'delivered' } : m);
-        await localforage.setItem(`chat_history_${roomId}`, updated);
-        
-        if (selectedContactRef.current?.id === contact.id) {
-          setMessages(updated);
-        }
-        
-        // Actualizar bandeja
-        const lastMsg = updated[updated.length - 1];
-        setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
+        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+        roomWritePromises.current[roomId] = prevPromise.then(async () => {
+          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+          
+          const updated = history.map((m:any) => m.id === messageId ? { ...m, status: 'delivered' } : m);
+          await localforage.setItem(`chat_history_${roomId}`, updated);
+          
+          if (selectedContactRef.current?.id === contact.id) {
+            setMessages(updated);
+          }
+          
+          // Actualizar bandeja
+          const lastMsg = updated[updated.length - 1];
+          setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
+        });
       });
 
       // Motor de Reintento Offline a Online (Cuando el OTRO se conecta)
