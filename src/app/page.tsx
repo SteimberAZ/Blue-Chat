@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, LockKey, EnvelopeSimple, User } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -137,13 +137,35 @@ export default function BlueChatApp() {
     
     channel.on('broadcast', { event: 'new_message' }, (payload) => {
       const incomingMsg = payload.payload;
+      
+      // Auto-ACK: Confirmar recepción al remitente si el mensaje no es nuestro
+      if (incomingMsg.senderId !== currentUser?.id) {
+        channel.send({
+          type: 'broadcast',
+          event: 'ack',
+          payload: { messageId: incomingMsg.id }
+        });
+      }
+
       setMessages((prev) => {
         if (prev.find(m => m.id === incomingMsg.id)) return prev;
         const newHistory = [...prev, incomingMsg];
         localforage.setItem(`chat_history_${chatRoomId}`, newHistory);
         return newHistory;
       });
-    }).subscribe();
+    });
+
+    // Procesar ACKs: Actualizar estado a 'delivered'
+    channel.on('broadcast', { event: 'ack' }, (payload) => {
+      const { messageId } = payload.payload;
+      setMessages((prev) => {
+        const updated = prev.map(m => m.id === messageId ? { ...m, status: 'delivered' } : m);
+        localforage.setItem(`chat_history_${chatRoomId}`, updated);
+        return updated;
+      });
+    });
+
+    channel.subscribe();
 
     channelRef.current = channel;
 
@@ -160,7 +182,8 @@ export default function BlueChatApp() {
       id: `m${Date.now()}`,
       senderId: currentUser.id,
       content: newMessage,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'pending'
     };
 
     setMessages((prev) => {
@@ -383,7 +406,11 @@ export default function BlueChatApp() {
                             ${isMine ? 'text-blue-200' : 'text-slate-400'}
                           `}>
                             <span className="text-[10px] font-medium">{msg.timestamp}</span>
-                            {isMine && <Checks size={14} weight="bold" className="text-blue-300" />}
+                            {isMine && (
+                              msg.status === 'delivered'
+                                ? <Checks size={14} weight="bold" className="text-blue-300" />
+                                : <Check size={14} weight="bold" className="text-blue-300 opacity-70" />
+                            )}
                           </div>
                         </div>
                       </div>
