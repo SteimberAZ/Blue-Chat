@@ -46,13 +46,13 @@ export default function BlueChatApp() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchUserData(session.user.id);
+      if (session) fetchUserData(session.user);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        fetchUserData(session.user.id);
+        fetchUserData(session.user);
       } else {
         setCurrentUser(null);
         setContacts([]);
@@ -62,16 +62,41 @@ export default function BlueChatApp() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = async (user: any) => {
+    const userId = user.id;
     const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
+    
     if (myProfile) {
       setCurrentUser(myProfile);
     } else {
-      setCurrentUser((prev: any) => {
-        // Blindaje extremo contra carrera asíncrona: No sobreescribir si ya inyectamos el perfil en handleAuth
-        if (prev && prev.id === userId && prev.first_name && prev.first_name !== 'Usuario') return prev;
-        return { id: userId, first_name: 'Usuario', last_name: '' };
-      });
+      // El usuario se acaba de autenticar por primera vez tras confirmar su correo.
+      // Lo insertamos ahora que la sesión está activa y tiene permisos RLS.
+      const firstName = user.user_metadata?.first_name || 'Usuario';
+      const newProfile = {
+        id: userId,
+        first_name: firstName,
+        last_name: '',
+        email: user.email,
+        role: 'Usuario BlueChat'
+      };
+      
+      const { error } = await supabase.from('employees').insert(newProfile);
+      
+      if (!error) {
+        setCurrentUser(newProfile);
+        
+        // Avisar a los demás clientes que hay un usuario nuevo
+        const tempChannel = supabase.channel('global_notifications');
+        tempChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            tempChannel.send({ type: 'broadcast', event: 'new_user_registered', payload: {} });
+            setTimeout(() => supabase.removeChannel(tempChannel), 2000);
+          }
+        });
+      } else {
+        // Fallback en caso de error
+        setCurrentUser({ id: userId, first_name: firstName, last_name: '' });
+      }
     }
 
     const { data: otherUsers } = await supabase.from('employees').select('*').neq('id', userId);
@@ -385,33 +410,18 @@ export default function BlueChatApp() {
       const { data: authData, error: authError } = await supabase.auth.signUp({ 
         email, 
         password,
-        options: { emailRedirectTo: `${window.location.origin}/` }
+        options: { 
+          emailRedirectTo: `${window.location.origin}/`,
+          data: { first_name: name } // Guardar el nombre en Supabase Auth para que sobreviva al correo
+        }
       });
       
       if (authError) setAuthError(authError.message);
       else if (authData.user) {
-        const newProfile = {
-          id: authData.user.id,
-          first_name: name,
-          last_name: '',
-          email: email,
-          role: 'Usuario BlueChat'
-        };
-        await supabase.from('employees').insert(newProfile);
-        
-        // Corregir condición de carrera que mostraba "Usuario" temporalmente
-        setCurrentUser(newProfile);
-
-        // Avisar a todos los demás clientes en la red para que agreguen al nuevo contacto al instante
-        const tempChannel = supabase.channel('global_notifications');
-        tempChannel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            tempChannel.send({ type: 'broadcast', event: 'new_user_registered', payload: {} });
-            setTimeout(() => supabase.removeChannel(tempChannel), 2000);
-          }
-        });
-
-        if (!authData.session) setAuthError('Registro exitoso. Revisa tu correo o desactiva "Confirm Email".');
+        // La inserción en BD pública se hará de forma segura cuando el usuario confirme el correo y haga login real
+        if (!authData.session) {
+          setAuthError('Registro exitoso. Revisa tu bandeja de entrada o SPAM para confirmar tu correo.');
+        }
       }
     }
     setIsLoading(false);
