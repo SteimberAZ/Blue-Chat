@@ -184,7 +184,7 @@ export default function BlueChatApp() {
   // ==========================================
   if (!session || !currentUser) {
     return (
-      <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4 font-sans">
+      <div className="min-h-[100dvh] w-full overflow-hidden bg-blue-50 flex items-center justify-center p-4 font-sans">
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 border border-blue-100">
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
@@ -278,8 +278,8 @@ export default function BlueChatApp() {
   // UI: PANTALLA DE CHAT
   // ==========================================
   return (
-    <div className="h-screen w-screen bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
-      <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl overflow-hidden flex border border-blue-100">
+    <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
+      <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden">
         
         {/* PANEL IZQUIERDO: Contactos */}
         <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
@@ -335,7 +335,7 @@ export default function BlueChatApp() {
         </aside>
 
         {/* PANEL DERECHO: Chat Activo */}
-        <main className={`flex-1 flex-col relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
+        <main className={`flex-1 flex-col min-w-0 relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
           {selectedContact ? (
             <>
               <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-6 gap-4 z-10 shadow-sm">
