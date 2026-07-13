@@ -48,6 +48,23 @@ export default function BlueChatApp() {
   // Menús de Mensaje y Visor
   const [viewingImageIndex, setViewingImageIndex] = useState<number>(0);
   const [messageMenuId, setMessageMenuId] = useState<string | null>(null);
+  const [customModal, setCustomModal] = useState<any>({ isOpen: false });
+  const showAlert = (title: string, message: string) => {
+    setCustomModal({ isOpen: true, type: 'alert', title, message, onConfirm: () => {} });
+  };
+  const showConfirm = (title: string, message: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setCustomModal({
+        isOpen: true,
+        type: 'confirm',
+        title,
+        message,
+        onConfirm: () => resolve(true),
+        onCancel: () => resolve(false)
+      });
+    });
+  };
+
   const [forwardMessage, setForwardMessage] = useState<any>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   
@@ -230,7 +247,7 @@ export default function BlueChatApp() {
       setIsRecording(true);
       setRecordingTime(0);
     } catch (err) {
-      alert("No se pudo acceder al micrófono. Verifica los permisos.");
+      showAlert("Micrófono", "No se pudo acceder al micrófono. Verifica los permisos.");
     }
   };
 
@@ -246,7 +263,7 @@ export default function BlueChatApp() {
     if (!file) return;
     
     if (file.size > 2 * 1024 * 1024) {
-      alert("Para mantener la velocidad instantánea y no sobrecargar la red P2P, los archivos deben pesar menos de 2MB.");
+      showAlert("Archivo grande", "Para mantener la velocidad instantánea y no sobrecargar la red P2P, los archivos deben pesar menos de 2MB.");
       return;
     }
 
@@ -366,7 +383,7 @@ export default function BlueChatApp() {
      if (savedSessionId) {
         supabase.channel(`session-${savedSessionId}`)
           .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'user_sessions', filter: `id=eq.${savedSessionId}` }, () => {
-             alert("Tu sesión ha sido cerrada remotamente.");
+             showAlert("Sesión Cerrada", "Tu sesión ha sido cerrada remotamente.");
              handleLogout();
           }).subscribe();
      }
@@ -705,7 +722,7 @@ export default function BlueChatApp() {
       if (selectError) throw selectError;
 
       if (existing && existing.length > 0) {
-         alert("Ya existe una solicitud o amistad con este usuario.");
+         showAlert("Aviso", "Ya existe una solicitud o amistad con este usuario.");
          return;
       }
 
@@ -713,12 +730,12 @@ export default function BlueChatApp() {
       if (insertError) throw insertError;
 
       notifyNetwork();
-      alert("Solicitud enviada!");
+      showAlert("Éxito", "Solicitud enviada!");
       setShowAddContact(false);
       setSearchUsername('');
       setSearchShortId('');
     } catch (err: any) {
-      alert("Error al enviar solicitud: " + err.message);
+      showAlert("Error", "Error al enviar solicitud: " + err.message);
       console.error(err);
     }
   };
@@ -741,7 +758,7 @@ export default function BlueChatApp() {
   };
 
   const deleteContact = async (contactId: string) => {
-    if (!confirm("¿Estás seguro de que quieres eliminar a este contacto? Ya no podrán enviarse mensajes.")) return;
+    if (!(await showConfirm("Eliminar Contacto", "¿Estás seguro de que quieres eliminar a este contacto? Ya no podrán enviarse mensajes."))) return;
     
     await supabase.from('contacts').delete()
       .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${contactId}),and(sender_id.eq.${contactId},receiver_id.eq.${currentUser.id})`);
@@ -755,7 +772,7 @@ export default function BlueChatApp() {
   };
 
   const clearChatHistory = async (contactId: string) => {
-    if (!confirm("¿Seguro que deseas borrar este chat? Desaparecerá de tu lista, pero seguirán siendo contactos.")) return;
+    if (!(await showConfirm("Eliminar Chat", "¿Seguro que deseas borrar este chat? Desaparecerá de tu lista, pero seguirán siendo contactos."))) return;
     const roomId = getChatRoomId(currentUser.id, contactId);
     await localforage.removeItem(`chat_history_${roomId}`);
     await localforage.removeItem(`unread_${roomId}`);
@@ -906,7 +923,7 @@ export default function BlueChatApp() {
       ? "¿Estás seguro de que deseas eliminar este mensaje para todos?"
       : "¿Estás seguro de que deseas eliminar este mensaje para ti?";
       
-    if (!window.confirm(confirmMessage)) return;
+    if (!(await showConfirm("Confirmación", confirmMessage))) return;
 
     if (!selectedContact || !currentUser) return;
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
@@ -959,7 +976,7 @@ export default function BlueChatApp() {
       }
     });
     
-    alert("Mensaje reenviado a " + getDisplayName(contact));
+    showAlert("Reenviado", "Mensaje reenviado a " + getDisplayName(contact));
     setForwardMessage(null);
   };
 
@@ -1070,7 +1087,7 @@ export default function BlueChatApp() {
   };
 
   const killSession = async (sessionId: string) => {
-     if (!confirm("¿Seguro que deseas cerrar esa sesión remotamente?")) return;
+     if (!(await showConfirm("Cerrar Sesión", "¿Seguro que deseas cerrar esa sesión remotamente?"))) return;
      await supabase.from('user_sessions').delete().eq('id', sessionId);
      fetchActiveSessions();
   };
@@ -1462,7 +1479,7 @@ export default function BlueChatApp() {
             <div className="flex items-center gap-1 sm:gap-4">
               <button onClick={() => { setReplyingTo(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Responder"><ArrowUUpLeft size={24}/></button>
               <button onClick={() => { setForwardMessage(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Reenviar"><ShareFat size={24}/></button>
-              <button onClick={() => { alert("Mensaje fijado en el chat"); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Fijar"><PushPin size={24}/></button>
+              <button onClick={() => { showAlert("Fijado", "Mensaje fijado en el chat"); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Fijar"><PushPin size={24}/></button>
               <div className="w-px h-6 bg-white/20 mx-1 hidden sm:block"></div>
               <button onClick={() => setActiveModal(null)} className="p-1.5 sm:p-2 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors"><X size={26} weight="bold"/></button>
             </div>
@@ -1769,7 +1786,7 @@ export default function BlueChatApp() {
                             )}
                           </div>
                           {msg.reaction && (
-                            <div className={`absolute -bottom-3 ${isMine ? 'right-4' : 'left-4'} bg-white border border-slate-100 rounded-full px-1.5 py-0.5 text-sm shadow-sm z-10`}>
+                            <div className={`absolute -bottom-3 left-4 bg-white border border-slate-100 rounded-full px-1.5 py-0.5 text-sm shadow-sm z-10`}>
                                {msg.reaction}
                             </div>
                           )}
@@ -1898,6 +1915,21 @@ export default function BlueChatApp() {
               </div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2">BlueChat para Web</h2>
               <p className="text-slate-500 max-w-md">Selecciona un chat en la barra lateral para comenzar a enviar mensajes de forma privada y local.</p>
+            </div>
+          )}
+
+          {customModal.isOpen && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 sm:p-8 animate-in zoom-in-95 relative flex flex-col items-center text-center">
+                <h3 className="text-xl font-bold text-slate-800 mb-2">{customModal.title}</h3>
+                <p className="text-slate-600 mb-8">{customModal.message}</p>
+                <div className="flex w-full gap-3">
+                  {customModal.type === 'confirm' && (
+                    <button onClick={() => { setCustomModal({ isOpen: false }); customModal.onCancel?.(); }} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancelar</button>
+                  )}
+                  <button onClick={() => { setCustomModal({ isOpen: false }); customModal.onConfirm?.(); }} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md">Aceptar</button>
+                </div>
+              </div>
             </div>
           )}
         </main>
