@@ -97,6 +97,42 @@ export default function BlueChatApp() {
     return [user1, user2].sort().join('-');
   };
 
+  const getE2EEKey = async (roomId: string) => {
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      "raw", enc.encode(roomId), { name: "PBKDF2" }, false, ["deriveBits", "deriveKey"]
+    );
+    return window.crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: enc.encode("bluechat_secure_salt_v1"), iterations: 100000, hash: "SHA-256" },
+      keyMaterial, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+    );
+  };
+
+  const encryptPayload = async (payload: any, roomId: string) => {
+    try {
+      const key = await getE2EEKey(roomId);
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(JSON.stringify(payload));
+      const encrypted = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encoded);
+      return btoa(JSON.stringify({ iv: Array.from(iv), data: Array.from(new Uint8Array(encrypted)) }));
+    } catch (err) {
+      console.error("Encryption error", err);
+      return null;
+    }
+  };
+
+  const decryptPayload = async (cipherTextBase64: string, roomId: string) => {
+    try {
+      const key = await getE2EEKey(roomId);
+      const { iv, data } = JSON.parse(atob(cipherTextBase64));
+      const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, new Uint8Array(data));
+      return JSON.parse(new TextDecoder().decode(decrypted));
+    } catch (err) {
+      console.error("Decryption error", err);
+      return null;
+    }
+  };
+
   // Escuchar cambios de sesión al arrancar
   useEffect(() => {
     localforage.getItem('user_nicknames').then((data: any) => {
@@ -479,10 +515,15 @@ export default function BlueChatApp() {
         config: { presence: { key: currentUser.id } }
       });
 
-      channel.on('broadcast', { event: 'new_message' }, (payload) => {
-        const incomingMsg = payload.payload;
+      channel.on('broadcast', { event: 'new_message' }, async (payloadObj) => {
+        let incomingMsg = payloadObj.payload;
+        if (incomingMsg.e2ee) {
+           incomingMsg = await decryptPayload(incomingMsg.data, roomId);
+           if (!incomingMsg) return;
+        }
         if (incomingMsg.senderId !== currentUser.id) {
-          channel.send({ type: 'broadcast', event: 'ack', payload: { messageId: incomingMsg.id } });
+          const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
+          channel.send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
         }
 
         const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
@@ -517,8 +558,13 @@ export default function BlueChatApp() {
         });
       });
 
-      channel.on('broadcast', { event: 'reaction' }, async (payload) => {
-        const { msgId, emoji } = payload.payload;
+      channel.on('broadcast', { event: 'reaction' }, async (payloadObj) => {
+        let payload = payloadObj.payload;
+        if (payload.e2ee) {
+           payload = await decryptPayload(payload.data, roomId);
+           if (!payload) return;
+        }
+        const { msgId, emoji } = payload;
         const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
         roomWritePromises.current[roomId] = prevPromise.then(async () => {
           let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
@@ -531,8 +577,13 @@ export default function BlueChatApp() {
         });
       });
 
-      channel.on('broadcast', { event: 'ack' }, (payload) => {
-        const { messageId } = payload.payload;
+      channel.on('broadcast', { event: 'ack' }, async (payloadObj) => {
+        let payload = payloadObj.payload;
+        if (payload.e2ee) {
+           payload = await decryptPayload(payload.data, roomId);
+           if (!payload) return;
+        }
+        const { messageId } = payload;
         const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
         roomWritePromises.current[roomId] = prevPromise.then(async () => {
           let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
@@ -557,7 +608,10 @@ export default function BlueChatApp() {
             localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
-              pending.forEach((pMsg: any) => channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg }));
+              pending.forEach(async (pMsg: any) => {
+               const enc = await encryptPayload(pMsg, roomId);
+               channel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: enc } });
+            });
             });
           }, 800);
         }
@@ -570,7 +624,10 @@ export default function BlueChatApp() {
             localforage.getItem(`chat_history_${roomId}`).then((history: any) => {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
-              pending.forEach((pMsg: any) => channel.send({ type: 'broadcast', event: 'new_message', payload: pMsg }));
+              pending.forEach(async (pMsg: any) => {
+               const enc = await encryptPayload(pMsg, roomId);
+               channel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: enc } });
+            });
             });
           }, 800);
         }
@@ -746,7 +803,8 @@ export default function BlueChatApp() {
     });
 
     if (channelsRef.current[roomId]) {
-      channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: newMsgObj });
+      const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+      channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
     }
 
     if (!onlineUsersRef.current[roomId]) {
@@ -773,7 +831,8 @@ export default function BlueChatApp() {
     await localforage.setItem(`chat_history_${roomId}`, updatedMessages);
     
     if (channelsRef.current[roomId]) {
-      channelsRef.current[roomId].send({ type: 'broadcast', event: 'reaction', payload: { msgId, emoji } });
+      const encryptedReaction = await encryptPayload({ msgId, emoji }, roomId);
+      channelsRef.current[roomId].send({ type: 'broadcast', event: 'reaction', payload: { e2ee: true, data: encryptedReaction } });
     }
   };
 
@@ -795,9 +854,10 @@ export default function BlueChatApp() {
     await localforage.setItem(`chat_history_${roomId}`, history);
     
     const targetChannel = supabase.channel(`chat_${roomId}`);
-    targetChannel.subscribe(status => {
+        targetChannel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-         targetChannel.send({ type: 'broadcast', event: 'new_message', payload: newMsgObj });
+         const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+         targetChannel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
          setTimeout(() => supabase.removeChannel(targetChannel), 1000);
       }
     });
