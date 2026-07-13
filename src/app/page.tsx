@@ -32,6 +32,8 @@ export default function BlueChatApp() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [editingNickname, setEditingNickname] = useState('');
+  const [showMyProfile, setShowMyProfile] = useState(false);
+  const [editingMyProfileName, setEditingMyProfileName] = useState('');
   
   // Estado de Transferencia de Dispositivo
   const [loginStep, setLoginStep] = useState<'none' | 'checking' | 'transfer_code' | 'downloading'>('none');
@@ -432,6 +434,17 @@ export default function BlueChatApp() {
     if (!editingNickname.trim()) delete updated[String(contactProfile.id)];
     setNicknames(updated);
     await localforage.setItem('user_nicknames', updated);
+  };
+
+  const saveMyProfile = async () => {
+    if (!editingMyProfileName.trim() || !currentUser) return;
+    setIsLoading(true);
+    const { error } = await supabase.from('employees').update({ first_name: editingMyProfileName.trim() }).eq('id', currentUser.id);
+    if (!error) {
+      setCurrentUser({ ...currentUser, first_name: editingMyProfileName.trim() });
+      setShowMyProfile(false);
+    }
+    setIsLoading(false);
   };
 
   const getDisplayName = (contact: any) => {
@@ -1123,6 +1136,39 @@ export default function BlueChatApp() {
   return (
     <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
       
+      {/* Modal Mi Perfil */}
+      {showMyProfile && currentUser && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all" onClick={() => setShowMyProfile(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs sm:max-w-sm p-6 sm:p-8 relative flex flex-col items-center text-center animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowMyProfile(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full p-2 transition-colors"><X size={20} weight="bold"/></button>
+            <div className="w-24 h-24 sm:w-28 sm:h-28 bg-gradient-to-tr from-emerald-400 to-teal-600 text-white rounded-full flex items-center justify-center font-bold text-4xl sm:text-5xl shadow-xl shadow-emerald-500/30 uppercase mb-5 ring-4 ring-white">
+               {currentUser.first_name?.[0] || 'U'}
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-800 leading-tight">Mi Perfil</h2>
+            <p className="text-emerald-600 font-bold mb-4 bg-emerald-50 px-3 py-1 rounded-full mt-2 inline-block">#{currentUser.short_id || '0000'}</p>
+            
+            <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 mb-4 flex flex-col gap-2 text-left">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Tu Nombre Visible</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={editingMyProfileName} 
+                  onChange={e => setEditingMyProfileName(e.target.value)} 
+                  placeholder="Ej: Juan Perez" 
+                  className="flex-1 bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                <button onClick={saveMyProfile} disabled={isLoading} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50">Guardar</button>
+              </div>
+            </div>
+
+            <div className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center gap-3">
+               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm"><EnvelopeSimple size={18} /></div>
+               <p className="text-sm text-slate-600 font-medium truncate flex-1 text-left">{currentUser.email}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Perfil de Contacto */}
       {contactProfile && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all" onClick={() => setContactProfile(null)}>
@@ -1397,7 +1443,7 @@ export default function BlueChatApp() {
       <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden relative">
         <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           <header className="h-[72px] bg-blue-600 flex items-center justify-between px-4 text-white">
-            <div className="flex items-center gap-3">
+            <div onClick={() => { setEditingMyProfileName(currentUser.first_name); setShowMyProfile(true); }} className="flex items-center gap-3 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-xl transition-colors">
               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg backdrop-blur-sm shadow-inner uppercase">
                 {currentUser.first_name?.[0] || 'U'}
               </div>
