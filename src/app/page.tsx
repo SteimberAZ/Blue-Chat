@@ -1207,10 +1207,10 @@ export default function BlueChatApp() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Ingresa 4 letras o números</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID</label>
                   <div className="relative">
-                    <IdentificationCard className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value)} placeholder="e.g. 1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-8 pr-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors text-center uppercase" />
+                    <IdentificationCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value.toUpperCase())} placeholder="Ingresa 4 letras o números" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
                   </div>
                 </div>
               </>
@@ -1538,8 +1538,8 @@ export default function BlueChatApp() {
                   <input type="text" value={searchUsername} onChange={e => setSearchUsername(e.target.value)} placeholder="Ej: Alex" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500" />
                </div>
                <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 letras/núms)</label>
-                  <input type="text" maxLength={4} value={searchShortId} onChange={e => setSearchShortId(e.target.value)} placeholder="1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-center uppercase" />
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID</label>
+                  <input type="text" maxLength={4} value={searchShortId} onChange={e => setSearchShortId(e.target.value.toUpperCase())} placeholder="Ingresa 4 letras o números" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500" />
                </div>
             </div>
 
