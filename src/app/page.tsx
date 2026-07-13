@@ -1198,7 +1198,7 @@ export default function BlueChatApp() {
           
           <form onSubmit={handleAuth} className="space-y-4">
             {!isLoginMode && (
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-[2]">
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre</label>
                   <div className="relative">
@@ -1207,7 +1207,7 @@ export default function BlueChatApp() {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Ingresa un numero de 4 digitos</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Ingresa 4 letras o números</label>
                   <div className="relative">
                     <IdentificationCard className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value)} placeholder="e.g. 1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-8 pr-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors text-center uppercase" />
@@ -1532,13 +1532,13 @@ export default function BlueChatApp() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
             <button onClick={() => setShowAddContact(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
             <h2 className="text-xl font-bold text-slate-800 mb-4">Añadir Contacto</h2>
-            <div className="flex gap-2 mb-4">
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
                <div className="flex-[2]">
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Usuario (opcional)</label>
                   <input type="text" value={searchUsername} onChange={e => setSearchUsername(e.target.value)} placeholder="Ej: Alex" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500" />
                </div>
                <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 chars)</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 letras/núms)</label>
                   <input type="text" maxLength={4} value={searchShortId} onChange={e => setSearchShortId(e.target.value)} placeholder="1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-center uppercase" />
                </div>
             </div>
