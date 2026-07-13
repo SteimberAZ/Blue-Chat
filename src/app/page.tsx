@@ -658,20 +658,29 @@ export default function BlueChatApp() {
 
 
   const sendFriendRequest = async (targetId: string) => {
-    const { data: existing } = await supabase.from('contacts').select('*')
-      .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`);
-    
-    if (existing && existing.length > 0) {
-       alert("Ya existe una solicitud o amistad con este usuario.");
-       return;
-    }
+    try {
+      const { data: existing, error: selectError } = await supabase.from('contacts').select('*')
+        .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`);
+      
+      if (selectError) throw selectError;
 
-    await supabase.from('contacts').insert({ sender_id: currentUser.id, receiver_id: targetId, status: 'pending' });
-    notifyNetwork();
-    alert("Solicitud enviada!");
-    setShowAddContact(false);
-    setSearchUsername('');
-    setSearchShortId('');
+      if (existing && existing.length > 0) {
+         alert("Ya existe una solicitud o amistad con este usuario.");
+         return;
+      }
+
+      const { error: insertError } = await supabase.from('contacts').insert({ sender_id: currentUser.id, receiver_id: targetId, status: 'pending' });
+      if (insertError) throw insertError;
+
+      notifyNetwork();
+      alert("Solicitud enviada!");
+      setShowAddContact(false);
+      setSearchUsername('');
+      setSearchShortId('');
+    } catch (err: any) {
+      alert("Error al enviar solicitud: " + err.message);
+      console.error(err);
+    }
   };
 
   const acceptRequest = async (senderId: string) => {
@@ -1443,13 +1452,13 @@ export default function BlueChatApp() {
       <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden relative">
         <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           <header className="h-[72px] bg-blue-600 flex items-center justify-between px-4 text-white">
-            <div onClick={() => { setEditingMyProfileName(currentUser.first_name); setShowMyProfile(true); }} className="flex items-center gap-3 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-xl transition-colors">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg backdrop-blur-sm shadow-inner uppercase">
+            <div onClick={() => { setEditingMyProfileName(currentUser.first_name); setShowMyProfile(true); }} className="flex items-center gap-3 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-xl transition-colors truncate min-w-0 max-w-[250px]">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg backdrop-blur-sm shadow-inner uppercase flex-shrink-0">
                 {currentUser.first_name?.[0] || 'U'}
               </div>
-              <div className="flex flex-col">
-                <span className="font-semibold tracking-wide text-sm">{currentUser.first_name} <span className="opacity-70 font-normal">#{currentUser.short_id || '0000'}</span></span>
-                <span className="text-[10px] text-blue-200">{currentUser.email}</span>
+              <div className="flex flex-col min-w-0">
+                <span className="font-semibold tracking-wide text-sm truncate">{currentUser.first_name} <span className="opacity-70 font-normal">#{currentUser.short_id || '0000'}</span></span>
+                <span className="text-[10px] text-blue-200 truncate">{currentUser.email}</span>
               </div>
             </div>
             <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-full transition-colors" title="Cerrar sesión">
