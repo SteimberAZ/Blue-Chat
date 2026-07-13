@@ -928,6 +928,8 @@ export default function BlueChatApp() {
     await supabase.auth.signOut();
     setSelectedContact(null);
     setMessages([]);
+    setIsLoading(false);
+    setLoginStep('none');
   };
 
   const sortedContacts = [...contacts].sort((a, b) => {
