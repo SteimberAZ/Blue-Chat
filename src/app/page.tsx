@@ -253,8 +253,12 @@ export default function BlueChatApp() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+      if (recordingTime < 1) {
+        cancelRecording();
+      } else {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
     }
   };
 
