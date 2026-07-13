@@ -286,7 +286,7 @@ export default function BlueChatApp() {
     reader.onloadend = () => {
       sendMessage(undefined, {
          data: reader.result as string,
-         mimeType: file.type,
+         mimeType: file.type || 'application/octet-stream',
          name: file.name
       });
     };
@@ -1867,13 +1867,13 @@ export default function BlueChatApp() {
                     </button>
                     {showAttachments && (
                        <div className="absolute bottom-14 left-0 bg-white border border-slate-100 shadow-xl rounded-2xl p-2 flex flex-col gap-1 z-[100] w-48 animate-in fade-in slide-in-from-bottom-2">
-                          <button onClick={() => { setAttachmentType('image'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'image/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
                              <ImageIcon className="text-blue-500" size={20} weight="fill"/> Foto
                           </button>
-                          <button onClick={() => { setAttachmentType('video'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'video/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
                              <VideoCamera className="text-purple-500" size={20} weight="fill"/> Video
                           </button>
-                          <button onClick={() => { setAttachmentType('document'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = '*/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
                              <FileText className="text-emerald-500" size={20} weight="fill"/> Documento
                           </button>
                        </div>
@@ -1896,7 +1896,7 @@ export default function BlueChatApp() {
                      )}
                   </div>
 
-                  <input type="file" className="hidden" ref={fileInputRef} accept={attachmentType === 'image' ? 'image/*' : attachmentType === 'video' ? 'video/*' : '*/*'} onChange={handleFileSelect} />
+                  <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileSelect} />
 
                   {isRecording ? (
                     <div className="flex-1 bg-red-50 text-red-600 rounded-full h-12 flex items-center justify-between px-4 font-bold shadow-inner text-sm md:text-base">
