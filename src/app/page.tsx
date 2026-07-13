@@ -1198,22 +1198,22 @@ export default function BlueChatApp() {
           
           <form onSubmit={handleAuth} className="space-y-4">
             {!isLoginMode && (
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-[2]">
+              <>
+                <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
                   </div>
                 </div>
-                <div className="flex-1">
+                <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Ingresa 4 letras o números</label>
                   <div className="relative">
                     <IdentificationCard className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value)} placeholder="e.g. 1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-8 pr-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors text-center uppercase" />
                   </div>
                 </div>
-              </div>
+              </>
             )}
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Correo Electrónico</label>
