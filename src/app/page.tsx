@@ -1267,12 +1267,12 @@ export default function BlueChatApp() {
               <span className="font-bold text-lg">{messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.senderId === currentUser?.id ? 'Tú' : selectedContact?.first_name}</span>
               <span className="text-sm text-white/70">{messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.timestamp || 'Reciente'}</span>
             </div>
-            <div className="flex items-center gap-4">
-              <button onClick={() => { setReplyingTo(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Responder"><ArrowUUpLeft size={24}/></button>
-              <button onClick={() => { setForwardMessage(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Reenviar"><ShareFat size={24}/></button>
-              <button onClick={() => { alert("Mensaje fijado en el chat"); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Fijar"><PushPin size={24}/></button>
+            <div className="flex items-center gap-1 sm:gap-4">
+              <button onClick={() => { setReplyingTo(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Responder"><ArrowUUpLeft size={24}/></button>
+              <button onClick={() => { setForwardMessage(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Reenviar"><ShareFat size={24}/></button>
+              <button onClick={() => { alert("Mensaje fijado en el chat"); setActiveModal(null); }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-full transition-colors" title="Fijar"><PushPin size={24}/></button>
               <div className="w-px h-6 bg-white/20 mx-1 hidden sm:block"></div>
-              <button onClick={() => setActiveModal(null)} className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors ml-2"><X size={28} weight="bold"/></button>
+              <button onClick={() => setActiveModal(null)} className="p-1.5 sm:p-2 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors"><X size={26} weight="bold"/></button>
             </div>
           </div>
           <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
@@ -1511,7 +1511,7 @@ export default function BlueChatApp() {
                     return (
                       <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative z-10 group items-center`} onMouseLeave={() => setMessageMenuId(null)}>
                         {isMine && (
-                          <div className={`opacity-0 group-hover:opacity-100 transition-opacity relative mr-2`}>
+                          <div className={`opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity relative mr-2`}>
                              <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
                                <DotsThree size={20} weight="bold"/>
                              </button>
@@ -1581,7 +1581,7 @@ export default function BlueChatApp() {
                         </div>
 
                         {!isMine && (
-                          <div className={`opacity-0 group-hover:opacity-100 transition-opacity relative ml-2`}>
+                          <div className={`opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity relative ml-2`}>
                              <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
                                <DotsThree size={20} weight="bold"/>
                              </button>
