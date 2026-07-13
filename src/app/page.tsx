@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -40,8 +40,14 @@ export default function BlueChatApp() {
 
   // Interfaz Menú
   const [showMenu, setShowMenu] = useState(false);
-  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | null>(null);
+  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | 'image_viewer' | null>(null);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  
+  // Menús de Mensaje y Visor
+  const [viewingImageIndex, setViewingImageIndex] = useState<number>(0);
+  const [messageMenuId, setMessageMenuId] = useState<string | null>(null);
+  const [forwardMessage, setForwardMessage] = useState<any>(null);
+  const [replyingTo, setReplyingTo] = useState<any>(null);
   
   // Sesiones Activas
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -487,19 +493,6 @@ export default function BlueChatApp() {
           history = [...history, incomingMsg];
           history.sort((a: any, b: any) => a.createdAt - b.createdAt);
           
-          await localforage.setItem(`chat_history_${roomId}`, history);
-
-          if (selectedContactRef.current?.id === contact.id) {
-            setMessages(history);
-            await localforage.setItem(`unread_${roomId}`, 0);
-            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
-          } else {
-            const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
-            const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
-            await localforage.setItem(`unread_${roomId}`, newUnread);
-            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
-          }
-          
           setHiddenChats(prev => {
             if (prev.includes(contact.id)) {
               const updated = prev.filter(id => id !== contact.id);
@@ -702,6 +695,10 @@ export default function BlueChatApp() {
     if (msgText.trim()) newMsgObj.content = msgText.trim();
     if (file) newMsgObj.file = file;
     if (audio) newMsgObj.audio = audio;
+    if (replyingTo) {
+       newMsgObj.replyTo = replyingTo;
+       setReplyingTo(null);
+    }
 
     setMessages((prev) => {
       const updatedMessages = [...prev, newMsgObj];
@@ -738,6 +735,48 @@ export default function BlueChatApp() {
         }).catch(err => console.error(err));
       }
     }
+  };
+
+  const reactToMessage = async (msgId: string, emoji: string) => {
+    if (!selectedContact || !currentUser) return;
+    const roomId = getChatRoomId(currentUser.id, selectedContact.id);
+    
+    const updatedMessages = messages.map(m => m.id === msgId ? { ...m, reaction: emoji } : m);
+    setMessages(updatedMessages);
+    await localforage.setItem(`chat_history_${roomId}`, updatedMessages);
+    
+    if (channelsRef.current[roomId]) {
+      channelsRef.current[roomId].send({ type: 'broadcast', event: 'reaction', payload: { msgId, emoji } });
+    }
+  };
+
+  const executeForward = async (contact: any) => {
+    if (!forwardMessage || !currentUser) return;
+    const roomId = getChatRoomId(currentUser.id, contact.id);
+    const newMsgObj = { 
+      ...forwardMessage, 
+      id: `m${Date.now()}`, 
+      senderId: currentUser.id, 
+      createdAt: Date.now(), 
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
+      status: 'pending',
+      reaction: null 
+    };
+    
+    const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+    history.push(newMsgObj);
+    await localforage.setItem(`chat_history_${roomId}`, history);
+    
+    const targetChannel = supabase.channel(`chat_${roomId}`);
+    targetChannel.subscribe(status => {
+      if (status === 'SUBSCRIBED') {
+         targetChannel.send({ type: 'broadcast', event: 'new_message', payload: newMsgObj });
+         setTimeout(() => supabase.removeChannel(targetChannel), 1000);
+      }
+    });
+    
+    alert("Mensaje reenviado a " + getDisplayName(contact));
+    setForwardMessage(null);
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -1175,6 +1214,56 @@ export default function BlueChatApp() {
         </div>
       )}
 
+      {/* Modales Extra: Reenvío y Visor */}
+      {forwardMessage && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setForwardMessage(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 relative flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+             <button onClick={() => setForwardMessage(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24}/></button>
+             <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ShareFat className="text-blue-500" weight="fill"/> Reenviar a...</h3>
+             <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin pr-2">
+               {contacts.length === 0 ? <p className="text-sm text-slate-400 text-center py-4">No tienes contactos</p> : 
+                 contacts.map(contact => (
+                 <div key={contact.id} onClick={() => executeForward(contact)} className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-200 rounded-xl cursor-pointer transition-colors">
+                    <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center font-bold">{contact.first_name[0]}</div>
+                    <span className="font-semibold text-slate-800 text-sm">{getDisplayName(contact)}</span>
+                 </div>
+               ))}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'image_viewer' && (
+        <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col animate-in fade-in">
+          <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/60 to-transparent text-white absolute top-0 w-full z-10">
+            <div className="flex flex-col">
+              <span className="font-bold text-lg">{messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.senderId === currentUser?.id ? 'Tú' : selectedContact?.first_name}</span>
+              <span className="text-sm text-white/70">{messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.timestamp || 'Reciente'}</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <button onClick={() => { setReplyingTo(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Responder"><ArrowUUpLeft size={24}/></button>
+              <button onClick={() => { setForwardMessage(messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Reenviar"><ShareFat size={24}/></button>
+              <button onClick={() => { alert("Mensaje fijado en el chat"); setActiveModal(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors hidden sm:block" title="Fijar"><PushPin size={24}/></button>
+              <div className="w-px h-6 bg-white/20 mx-1 hidden sm:block"></div>
+              <button onClick={() => setActiveModal(null)} className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors ml-2"><X size={28} weight="bold"/></button>
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
+            <img src={messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.file.data} className="max-w-full max-h-full object-contain drop-shadow-2xl" />
+          </div>
+          <div className="h-28 bg-black/50 p-4 flex items-center justify-center gap-3 overflow-x-auto border-t border-white/10 shrink-0">
+            {messages.filter(m => m.file?.mimeType.startsWith('image/')).map((img, idx) => (
+              <img 
+                key={img.id} 
+                src={img.file.data} 
+                onClick={() => setViewingImageIndex(idx)}
+                className={`h-full object-cover w-20 cursor-pointer rounded-lg border-2 transition-all shadow-lg ${idx === viewingImageIndex ? 'border-blue-500 scale-110 opacity-100 z-10' : 'border-transparent opacity-50 hover:opacity-100'}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Modal Añadir Contacto */}
       {showAddContact && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -1393,10 +1482,33 @@ export default function BlueChatApp() {
                   messages.map(msg => {
                     const isMine = msg.senderId === currentUser.id;
                     return (
-                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative z-10`}>
-                        <div className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-2 shadow-sm relative group
+                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative z-10 group items-center`} onMouseLeave={() => setMessageMenuId(null)}>
+                        {isMine && (
+                          <div className={`opacity-0 group-hover:opacity-100 transition-opacity relative mr-2`}>
+                             <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
+                               <DotsThree size={20} weight="bold"/>
+                             </button>
+                             {messageMenuId === msg.id && (
+                               <div className={`absolute right-0 bottom-8 flex items-center gap-1 p-2 bg-white rounded-full shadow-xl border border-slate-100 z-50 animate-in zoom-in-95`}>
+                                  {['👍','❤️','😂','😮','🙏'].map(emoji => (
+                                    <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-lg">{emoji}</button>
+                                  ))}
+                                  <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                  <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="text-blue-500 hover:text-blue-700 p-1" title="Reenviar"><ShareFat size={18} weight="fill"/></button>
+                               </div>
+                             )}
+                          </div>
+                        )}
+
+                        <div className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-2 shadow-sm relative
                           ${isMine ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm border border-slate-100'}
                         `}>
+                          {msg.replyTo && (
+                            <div className={`text-xs p-2 mb-1.5 rounded-lg border-l-4 ${isMine ? 'bg-blue-700/50 border-blue-300' : 'bg-slate-100 border-blue-500'}`}>
+                               <p className="font-bold">{msg.replyTo.senderId === currentUser.id ? 'Tú' : selectedContact.first_name}</p>
+                               <p className="truncate opacity-80">{msg.replyTo.text || msg.replyTo.content || 'Archivo multimedia'}</p>
+                            </div>
+                          )}
                           <div className="text-sm font-medium whitespace-pre-wrap break-words">
                             {msg.content && <p>{msg.content}</p>}
                             {msg.text && <p>{msg.text}</p>}
@@ -1406,7 +1518,17 @@ export default function BlueChatApp() {
                             {msg.file && (
                               <div className="mt-2">
                                 {msg.file.mimeType.startsWith('image/') ? (
-                                  <img src={msg.file.data} alt="attachment" className="max-w-[220px] max-h-[300px] object-cover rounded-lg border border-black/10 shadow-sm" />
+                                  <img 
+                                    src={msg.file.data} 
+                                    alt="attachment" 
+                                    onClick={() => {
+                                      const allImages = messages.filter(m => m.file?.mimeType.startsWith('image/'));
+                                      const idx = allImages.findIndex(m => m.id === msg.id);
+                                      setViewingImageIndex(idx);
+                                      setActiveModal('image_viewer');
+                                    }}
+                                    className="cursor-pointer max-w-[220px] max-h-[300px] object-cover rounded-lg border border-black/10 shadow-sm transition-transform hover:scale-[1.02]" 
+                                  />
                                 ) : msg.file.mimeType.startsWith('video/') ? (
                                   <video controls src={msg.file.data} className="max-w-[220px] rounded-lg border border-black/10 shadow-sm" />
                                 ) : (
@@ -1424,7 +1546,29 @@ export default function BlueChatApp() {
                               msg.status === 'delivered' ? <Checks size={14} weight="bold" className="text-blue-300" /> : <Check size={14} weight="bold" className="text-blue-300 opacity-70" />
                             )}
                           </div>
+                          {msg.reaction && (
+                            <div className={`absolute -bottom-3 ${isMine ? 'right-4' : 'left-4'} bg-white border border-slate-100 rounded-full px-1.5 py-0.5 text-sm shadow-sm z-10`}>
+                               {msg.reaction}
+                            </div>
+                          )}
                         </div>
+
+                        {!isMine && (
+                          <div className={`opacity-0 group-hover:opacity-100 transition-opacity relative ml-2`}>
+                             <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
+                               <DotsThree size={20} weight="bold"/>
+                             </button>
+                             {messageMenuId === msg.id && (
+                               <div className={`absolute left-0 bottom-8 flex items-center gap-1 p-2 bg-white rounded-full shadow-xl border border-slate-100 z-50 animate-in zoom-in-95`}>
+                                  {['👍','❤️','😂','😮','🙏'].map(emoji => (
+                                    <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-lg">{emoji}</button>
+                                  ))}
+                                  <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                  <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="text-blue-500 hover:text-blue-700 p-1" title="Reenviar"><ShareFat size={18} weight="fill"/></button>
+                               </div>
+                             )}
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -1439,7 +1583,16 @@ export default function BlueChatApp() {
               )}
 
               <footer className="bg-white border-t border-slate-200 p-3 md:p-4 z-10 relative">
-                <div className="flex items-center gap-2 md:gap-3">
+                {replyingTo && (
+                  <div className="flex items-center justify-between bg-slate-50 p-2 md:px-4 md:py-3 border-b border-slate-100 rounded-t-xl mx-2 md:mx-4 -mt-16 absolute left-0 right-0 z-20 shadow-lg">
+                     <div className="border-l-4 border-blue-500 pl-3">
+                        <p className="text-xs font-bold text-blue-600">{replyingTo.senderId === currentUser.id ? 'Tú' : selectedContact.first_name}</p>
+                        <p className="text-sm text-slate-600 truncate max-w-[200px] md:max-w-[400px]">{replyingTo.content || replyingTo.text || 'Archivo multimedia'}</p>
+                     </div>
+                     <button onClick={() => setReplyingTo(null)} className="p-1 text-slate-400 hover:text-slate-600 bg-slate-200/50 rounded-full"><X size={16}/></button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 md:gap-3 relative z-30">
                   {/* Menú Adjuntos */}
                   <div className="relative">
                     <button onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
