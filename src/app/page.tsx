@@ -258,6 +258,16 @@ export default function BlueChatApp() {
     }
   };
 
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = () => {
+         mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+      };
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1885,9 +1895,12 @@ export default function BlueChatApp() {
                   <input type="file" className="hidden" ref={fileInputRef} accept={attachmentType === 'image' ? 'image/*' : attachmentType === 'video' ? 'video/*' : '*/*'} onChange={handleFileSelect} />
 
                   {isRecording ? (
-                    <div className="flex-1 bg-red-50 text-red-600 rounded-full h-12 flex items-center px-4 font-bold animate-pulse gap-2 shadow-inner text-sm md:text-base">
-                       <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0"></div>
-                       Grabando... {recordingTime}s
+                    <div className="flex-1 bg-red-50 text-red-600 rounded-full h-12 flex items-center justify-between px-4 font-bold shadow-inner text-sm md:text-base">
+                       <div className="flex items-center gap-2 animate-pulse">
+                         <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0"></div>
+                         Grabando... {recordingTime}s
+                       </div>
+                       <button onClick={cancelRecording} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors" title="Cancelar"><X size={20} weight="bold"/></button>
                     </div>
                   ) : (
                     <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 h-12 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
@@ -1908,13 +1921,19 @@ export default function BlueChatApp() {
                     <button onClick={() => sendMessage()} className="w-10 h-10 md:w-12 md:h-12 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm shrink-0">
                       <PaperPlaneRight size={20} weight="fill" />
                     </button>
+                  ) : isRecording ? (
+                    <button 
+                       onClick={stopRecording}
+                       className="w-10 h-10 md:w-12 md:h-12 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg shadow-red-200 scale-110 shrink-0 cursor-pointer select-none"
+                    >
+                      <PaperPlaneRight size={20} weight="fill" />
+                    </button>
                   ) : (
                     <button 
-                       onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} 
-                       onTouchStart={startRecording} onTouchEnd={stopRecording} 
-                       className={`w-10 h-10 md:w-12 md:h-12 ${isRecording ? 'bg-red-500 scale-110 shadow-lg shadow-red-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer select-none`}
+                       onClick={startRecording}
+                       className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer select-none"
                     >
-                      <Microphone size={24} weight={isRecording ? "fill" : "bold"} className={isRecording ? "text-white" : "text-slate-600"} />
+                      <Microphone size={24} weight="bold" />
                     </button>
                   )}
                 </div>
