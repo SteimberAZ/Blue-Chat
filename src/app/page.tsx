@@ -1207,7 +1207,7 @@ export default function BlueChatApp() {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID (4 chars)</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Ingresa un numero de 4 digitos</label>
                   <div className="relative">
                     <IdentificationCard className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value)} placeholder="e.g. 1A2B" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-8 pr-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors text-center uppercase" />
