@@ -501,6 +501,33 @@ export default function BlueChatApp() {
             }
             return prev;
           });
+
+          await localforage.setItem(`chat_history_${roomId}`, history);
+
+          if (selectedContactRef.current?.id === contact.id) {
+            setMessages(history);
+            await localforage.setItem(`unread_${roomId}`, 0);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
+          } else {
+            const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+            const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
+            await localforage.setItem(`unread_${roomId}`, newUnread);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
+          }
+        });
+      });
+
+      channel.on('broadcast', { event: 'reaction' }, async (payload) => {
+        const { msgId, emoji } = payload.payload;
+        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+        roomWritePromises.current[roomId] = prevPromise.then(async () => {
+          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+          const updated = history.map((m:any) => m.id === msgId ? { ...m, reaction: emoji } : m);
+          await localforage.setItem(`chat_history_${roomId}`, updated);
+          
+          if (selectedContactRef.current?.id === contact.id) {
+            setMessages(updated);
+          }
         });
       });
 
