@@ -442,6 +442,9 @@ export default function BlueChatApp() {
     const { error } = await supabase.from('employees').update({ first_name: editingMyProfileName.trim() }).eq('id', currentUser.id);
     if (!error) {
       setCurrentUser({ ...currentUser, first_name: editingMyProfileName.trim() });
+      if (globalChannelRef.current) {
+         globalChannelRef.current.send({ type: 'broadcast', event: 'profile_update', payload: { userId: currentUser.id, newName: editingMyProfileName.trim() } });
+      }
       setShowMyProfile(false);
     }
     setIsLoading(false);
@@ -459,6 +462,13 @@ export default function BlueChatApp() {
     const channel = supabase.channel('global_notifications');
     channel.on('broadcast', { event: 'network_update' }, () => {
       fetchFriends(currentUser.id);
+    });
+    
+    channel.on('broadcast', { event: 'profile_update' }, (payload) => {
+      const { userId, newName } = payload.payload;
+      setContacts(prev => prev.map(c => c.id === userId ? { ...c, first_name: newName } : c));
+      setSelectedContact((prev: any) => (prev?.id === userId ? { ...prev, first_name: newName } : prev));
+      setContactProfile((prev: any) => (prev?.id === userId ? { ...prev, first_name: newName } : prev));
     }).subscribe();
     
     globalChannelRef.current = channel;
