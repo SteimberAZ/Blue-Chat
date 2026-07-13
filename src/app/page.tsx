@@ -1332,7 +1332,10 @@ export default function BlueChatApp() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Bell className="text-orange-500" weight="fill"/> Solicitudes Pendientes</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Bell className="text-orange-500" weight="fill"/> Solicitudes Pendientes
+              {pendingRequests.length > 0 && <span className="bg-orange-100 text-orange-600 text-[12px] px-2.5 py-0.5 rounded-full font-bold ml-auto">{pendingRequests.length}</span>}
+            </h2>
             <div className="max-h-[60vh] overflow-y-auto space-y-2">
                {pendingRequests.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No tienes solicitudes pendientes.</p> :
                   pendingRequests.map(req => (
@@ -1360,7 +1363,10 @@ export default function BlueChatApp() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><PaperPlaneRight className="text-blue-500" weight="fill"/> Solicitudes Enviadas</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <PaperPlaneRight className="text-blue-500" weight="fill"/> Solicitudes Enviadas
+              {sentRequests.length > 0 && <span className="bg-blue-100 text-blue-600 text-[12px] px-2.5 py-0.5 rounded-full font-bold ml-auto">{sentRequests.length}</span>}
+            </h2>
             <div className="max-h-[60vh] overflow-y-auto space-y-2">
                {sentRequests.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No has enviado solicitudes.</p> :
                   sentRequests.map(req => (
@@ -1385,7 +1391,10 @@ export default function BlueChatApp() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
-            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="text-emerald-500" weight="fill"/> Todos los contactos</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Users className="text-emerald-500" weight="fill"/> Todos los contactos
+              {contacts.length > 0 && <span className="bg-emerald-100 text-emerald-600 text-[12px] px-2.5 py-0.5 rounded-full font-bold ml-auto">{contacts.length}</span>}
+            </h2>
             
             <div className="bg-slate-100 rounded-xl flex items-center px-4 py-2 mb-4 shrink-0">
               <MagnifyingGlass size={18} className="text-slate-400" />
@@ -1423,7 +1432,10 @@ export default function BlueChatApp() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24} /></button>
-            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Desktop className="text-blue-500" weight="fill"/> Sesiones Abiertas</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Desktop className="text-blue-500" weight="fill"/> Sesiones Abiertas
+              {activeSessions.length > 0 && <span className="bg-slate-100 text-slate-600 text-[12px] px-2.5 py-0.5 rounded-full font-bold ml-auto">{activeSessions.length}</span>}
+            </h2>
             
             <div className="flex-1 overflow-y-auto space-y-3 scrollbar-thin">
                {activeSessions.length === 0 ? <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div> :
