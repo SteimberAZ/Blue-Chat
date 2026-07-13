@@ -1,16 +1,32 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { createClient } from '@supabase/supabase-js';
 
 // Inicializa Resend con la variable de entorno.
-// Si no existe, usamos una key falsa (mock) para evitar que crashee en desarrollo.
 const resend = new Resend(process.env.RESEND_API_KEY || 're_mock_key_12345');
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '');
 
 export async function POST(request: Request) {
   try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader) {
+      return NextResponse.json({ error: 'No autorizado. Falta token.' }, { status: 401 });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Token inválido o expirado' }, { status: 401 });
+    }
+
     const { senderName, recipientEmail, recipientName, type, code } = await request.json();
 
     if (!recipientEmail) {
       return NextResponse.json({ error: 'Falta email del destinatario' }, { status: 400 });
+    }
+    
+    if (type === 'transfer' && user.email !== recipientEmail) {
+       return NextResponse.json({ error: 'No autorizado para enviar a otro correo' }, { status: 403 });
     }
 
     const isTransfer = type === 'transfer';

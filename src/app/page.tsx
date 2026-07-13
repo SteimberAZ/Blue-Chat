@@ -170,7 +170,10 @@ export default function BlueChatApp() {
                         await supabase.from('device_transfers').insert({ user_id: session.user.id, auth_code: code });
                         await fetch('/api/notify', {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${session.access_token}`
+                          },
                           body: JSON.stringify({ recipientEmail: session.user.email, type: 'transfer', code })
                         });
                         setLoginStep('transfer_code');
@@ -847,7 +850,10 @@ export default function BlueChatApp() {
         await localforage.setItem(rateLimitKey, now); 
         fetch('/api/notify', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
           body: JSON.stringify({ senderName: currentUser.first_name, recipientEmail: selectedContact.email, recipientName: selectedContact.first_name })
         }).catch(err => console.error(err));
       }
