@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -64,6 +64,17 @@ export default function BlueChatApp() {
   const prevMessagesLength = useRef(0);
   const [isTyping, setIsTyping] = useState(false);
   
+  // Multimedia y Adjuntos
+  const TOP_EMOJIS = ['😂', '❤️', '👍', '😭', '🙏', '🥰', '🔥', '✨', '🥺', '🎉'];
+  const [showEmojis, setShowEmojis] = useState(false);
+  const [showAttachments, setShowAttachments] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachmentType, setAttachmentType] = useState<'image'|'video'|'document'|null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+
   // Presencia
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   
@@ -138,6 +149,72 @@ export default function BlueChatApp() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    let interval: any;
+    if (isRecording) {
+      interval = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          sendMessage(undefined, undefined, reader.result as string);
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+    } catch (err) {
+      alert("No se pudo acceder al micrófono. Verifica los permisos.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Para mantener la velocidad instantánea y no sobrecargar la red P2P, los archivos deben pesar menos de 2MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = () => {
+      sendMessage(undefined, {
+         data: reader.result as string,
+         mimeType: file.type,
+         name: file.name
+      });
+    };
+    setShowAttachments(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const fetchFriends = async (userId: string) => {
     const { data: contactLinks } = await supabase.from('contacts').select('*').or(`sender_id.eq.${userId},receiver_id.eq.${userId}`);
@@ -609,19 +686,22 @@ export default function BlueChatApp() {
     }
   }, [messages, currentUser]);
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !selectedContact || !currentUser) return;
+  const sendMessage = async (text?: string, file?: any, audio?: string) => {
+    const msgText = text !== undefined ? text : newMessage;
+    if (!msgText.trim() && !file && !audio) return;
+    if (!selectedContact || !currentUser) return;
 
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
-    const newMsgObj = {
+    const newMsgObj: any = {
       id: `m${Date.now()}`,
       senderId: currentUser.id,
-      content: newMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdAt: Date.now(), 
+      createdAt: Date.now(),
       status: 'pending'
     };
+    if (msgText.trim()) newMsgObj.content = msgText.trim();
+    if (file) newMsgObj.file = file;
+    if (audio) newMsgObj.audio = audio;
 
     setMessages((prev) => {
       const updatedMessages = [...prev, newMsgObj];
@@ -630,7 +710,7 @@ export default function BlueChatApp() {
     });
     
     setChatMeta(prev => ({ ...prev, [selectedContact.id]: { ...prev[selectedContact.id], lastMessage: newMsgObj } }));
-    setNewMessage('');
+    if (!file && !audio) setNewMessage('');
     
     setHiddenChats(prev => {
       if (prev.includes(selectedContact.id)) {
@@ -657,10 +737,6 @@ export default function BlueChatApp() {
           body: JSON.stringify({ senderName: currentUser.first_name, recipientEmail: selectedContact.email, recipientName: selectedContact.first_name })
         }).catch(err => console.error(err));
       }
-    }
-
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
     }
   };
 
@@ -1239,7 +1315,7 @@ export default function BlueChatApp() {
                             lastMsg.status === 'delivered' ? <Checks size={14} weight="bold" className="text-blue-500 flex-shrink-0" /> : <Check size={14} weight="bold" className="text-slate-400 flex-shrink-0" />
                           )}
                           <p className={`text-[13px] truncate ${unreadCount > 0 ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
-                            {lastMsg ? lastMsg.content : 'Toca para enviar un mensaje'}
+                            {lastMsg ? (lastMsg.content || lastMsg.text || 'Archivo o audio enviado') : 'Toca para enviar un mensaje'}
                           </p>
                         </div>
                         {unreadCount > 0 && (
@@ -1321,7 +1397,27 @@ export default function BlueChatApp() {
                         <div className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-2 shadow-sm relative group
                           ${isMine ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white text-slate-800 rounded-bl-sm border border-slate-100'}
                         `}>
-                          <p className="text-[15px] leading-relaxed break-words">{msg.content}</p>
+                          <div className="text-sm font-medium whitespace-pre-wrap break-words">
+                            {msg.content && <p>{msg.content}</p>}
+                            {msg.text && <p>{msg.text}</p>}
+                            {msg.audio && (
+                              <audio controls src={msg.audio} className="mt-1 max-w-full h-10 rounded-full" />
+                            )}
+                            {msg.file && (
+                              <div className="mt-2">
+                                {msg.file.mimeType.startsWith('image/') ? (
+                                  <img src={msg.file.data} alt="attachment" className="max-w-[220px] max-h-[300px] object-cover rounded-lg border border-black/10 shadow-sm" />
+                                ) : msg.file.mimeType.startsWith('video/') ? (
+                                  <video controls src={msg.file.data} className="max-w-[220px] rounded-lg border border-black/10 shadow-sm" />
+                                ) : (
+                                  <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 bg-black/10 p-3 rounded-lg hover:bg-black/20 transition-colors">
+                                    <File size={24} />
+                                    <span className="truncate max-w-[150px]">{msg.file.name}</span>
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
                           <div className={`flex items-center justify-end gap-1 mt-1 ${isMine ? 'text-blue-200' : 'text-slate-400'}`}>
                             <span className="text-[10px] font-medium">{msg.timestamp}</span>
                             {isMine && (
@@ -1343,14 +1439,79 @@ export default function BlueChatApp() {
               )}
 
               <footer className="bg-white border-t border-slate-200 p-3 md:p-4 z-10 relative">
-                <form onSubmit={handleSendMessage} className="flex items-center gap-3">
-                  <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 py-2 md:py-3 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
-                    <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Escribe un mensaje..." className="flex-1 bg-transparent border-none outline-none text-slate-700 text-base placeholder-slate-400" />
+                <div className="flex items-center gap-2 md:gap-3">
+                  {/* Menú Adjuntos */}
+                  <div className="relative">
+                    <button onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
+                      <Plus size={24} weight="bold"/>
+                    </button>
+                    {showAttachments && (
+                       <div className="absolute bottom-14 left-0 bg-white border border-slate-100 shadow-xl rounded-2xl p-2 flex flex-col gap-1 z-[100] w-48 animate-in fade-in slide-in-from-bottom-2">
+                          <button onClick={() => { setAttachmentType('image'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <ImageIcon className="text-blue-500" size={20} weight="fill"/> Foto
+                          </button>
+                          <button onClick={() => { setAttachmentType('video'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <VideoCamera className="text-purple-500" size={20} weight="fill"/> Video
+                          </button>
+                          <button onClick={() => { setAttachmentType('document'); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <FileText className="text-emerald-500" size={20} weight="fill"/> Documento
+                          </button>
+                       </div>
+                    )}
                   </div>
-                  <button type="submit" disabled={!newMessage.trim()} className="w-10 h-10 md:w-12 md:h-12 flex-shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none">
-                    <PaperPlaneRight size={20} weight="fill" />
-                  </button>
-                </form>
+
+                  {/* Menú Emojis */}
+                  <div className="relative">
+                     <button onClick={() => { setShowEmojis(!showEmojis); setShowAttachments(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
+                       <Smiley size={24} weight="bold"/>
+                     </button>
+                     {showEmojis && (
+                        <div className="absolute bottom-14 left-0 md:-left-12 bg-white border border-slate-100 shadow-xl rounded-2xl p-3 grid grid-cols-5 gap-2 z-[100] w-[260px] animate-in fade-in slide-in-from-bottom-2">
+                           {TOP_EMOJIS.map(emoji => (
+                              <button key={emoji} onClick={() => { setNewMessage(prev => prev + emoji); setShowEmojis(false); }} className="text-2xl hover:bg-slate-100 rounded-lg p-2 transition-colors flex items-center justify-center">
+                                {emoji}
+                              </button>
+                           ))}
+                        </div>
+                     )}
+                  </div>
+
+                  <input type="file" className="hidden" ref={fileInputRef} accept={attachmentType === 'image' ? 'image/*' : attachmentType === 'video' ? 'video/*' : '*/*'} onChange={handleFileSelect} />
+
+                  {isRecording ? (
+                    <div className="flex-1 bg-red-50 text-red-600 rounded-full h-12 flex items-center px-4 font-bold animate-pulse gap-2 shadow-inner text-sm md:text-base">
+                       <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0"></div>
+                       Grabando... {recordingTime}s
+                    </div>
+                  ) : (
+                    <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 h-12 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
+                      <input 
+                        type="text" 
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
+                        placeholder="Escribe un mensaje..." 
+                        className="flex-1 bg-transparent border-none outline-none text-slate-700 text-sm md:text-base placeholder-slate-400"
+                      />
+                    </div>
+                  )}
+
+                  {newMessage.trim() ? (
+                    <button onClick={() => sendMessage()} className="w-10 h-10 md:w-12 md:h-12 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm shrink-0">
+                      <PaperPlaneRight size={20} weight="fill" />
+                    </button>
+                  ) : (
+                    <button 
+                       onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} 
+                       onTouchStart={startRecording} onTouchEnd={stopRecording} 
+                       className={`w-10 h-10 md:w-12 md:h-12 ${isRecording ? 'bg-red-500 scale-110 shadow-lg shadow-red-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer select-none`}
+                    >
+                      <Microphone size={24} weight={isRecording ? "fill" : "bold"} className={isRecording ? "text-white" : "text-slate-600"} />
+                    </button>
+                  )}
+                </div>
               </footer>
             </>
           ) : (
