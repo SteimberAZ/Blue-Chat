@@ -584,6 +584,33 @@ export default function BlueChatApp() {
         });
       });
 
+      channel.on('broadcast', { event: 'delete_message' }, async (payloadObj) => {
+        let incomingReq = payloadObj.payload;
+        if (incomingReq.e2ee) {
+           incomingReq = await decryptPayload(incomingReq.data, roomId);
+           if (!incomingReq) return;
+        }
+
+        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+        roomWritePromises.current[roomId] = prevPromise.then(async () => {
+          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+          const msgToDelete = history.find((m: any) => m.id === incomingReq.messageId);
+          if (!msgToDelete) return; 
+          
+          // Ciberseguridad: Validar que el remitente del broadcast es el autor del mensaje
+          if (msgToDelete.senderId !== contact.id || incomingReq.senderId !== contact.id) return; 
+          
+          const updatedHistory = history.filter((m: any) => m.id !== incomingReq.messageId);
+          await localforage.setItem(`chat_history_${roomId}`, updatedHistory);
+          
+          if (selectedContactRef.current?.id === contact.id) {
+             setMessages(updatedHistory);
+          }
+          const lastMsg = updatedHistory.length > 0 ? updatedHistory[updatedHistory.length - 1] : null;
+          setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
+        });
+      });
+
       channel.on('broadcast', { event: 'reaction' }, async (payloadObj) => {
         let payload = payloadObj.payload;
         if (payload.e2ee) {
@@ -872,6 +899,32 @@ export default function BlueChatApp() {
       const encryptedReaction = await encryptPayload({ msgId, emoji }, roomId);
       channelsRef.current[roomId].send({ type: 'broadcast', event: 'reaction', payload: { e2ee: true, data: encryptedReaction } });
     }
+  };
+
+  const deleteMessage = async (msgId: string, forEveryone: boolean) => {
+    if (!selectedContact || !currentUser) return;
+    const roomId = getChatRoomId(currentUser.id, selectedContact.id);
+    
+    if (forEveryone) {
+      const encryptedPayload = await encryptPayload({ messageId: msgId, senderId: currentUser.id }, roomId);
+      if (channelsRef.current[roomId]) {
+        channelsRef.current[roomId].send({ type: 'broadcast', event: 'delete_message', payload: { e2ee: true, data: encryptedPayload } });
+      }
+    }
+
+    const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+    roomWritePromises.current[roomId] = prevPromise.then(async () => {
+      let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+      const updatedHistory = history.filter((m: any) => m.id !== msgId);
+      await localforage.setItem(`chat_history_${roomId}`, updatedHistory);
+      
+      if (selectedContactRef.current?.id === selectedContact.id) {
+         setMessages(updatedHistory);
+         const lastMsg = updatedHistory.length > 0 ? updatedHistory[updatedHistory.length - 1] : null;
+         setChatMeta(prev => ({ ...prev, [selectedContact.id]: { ...prev[selectedContact.id], lastMessage: lastMsg } }));
+      }
+    });
+    setMessageMenuId(null);
   };
 
   const executeForward = async (contact: any) => {
@@ -1655,6 +1708,9 @@ export default function BlueChatApp() {
                                   ))}
                                   <div className="w-px h-4 bg-slate-200 mx-1"></div>
                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="text-blue-500 hover:text-blue-700 p-1" title="Reenviar"><ShareFat size={18} weight="fill"/></button>
+                                  <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                  <button onClick={() => deleteMessage(msg.id, false)} className="text-slate-400 hover:text-slate-600 p-1" title="Eliminar para mí"><Trash size={18} /></button>
+                                  <button onClick={() => deleteMessage(msg.id, true)} className="text-red-400 hover:text-red-600 p-1" title="Eliminar para todos"><Trash size={18} weight="fill"/></button>
                                </div>
                              )}
                           </div>
@@ -1725,6 +1781,8 @@ export default function BlueChatApp() {
                                   ))}
                                   <div className="w-px h-4 bg-slate-200 mx-1"></div>
                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="text-blue-500 hover:text-blue-700 p-1" title="Reenviar"><ShareFat size={18} weight="fill"/></button>
+                                  <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                  <button onClick={() => deleteMessage(msg.id, false)} className="text-slate-400 hover:text-slate-600 p-1" title="Eliminar para mí"><Trash size={18} /></button>
                                </div>
                              )}
                           </div>
