@@ -902,6 +902,12 @@ export default function BlueChatApp() {
   };
 
   const deleteMessage = async (msgId: string, forEveryone: boolean) => {
+    const confirmMessage = forEveryone 
+      ? "¿Estás seguro de que deseas eliminar este mensaje para todos?"
+      : "¿Estás seguro de que deseas eliminar este mensaje para ti?";
+      
+    if (!window.confirm(confirmMessage)) return;
+
     if (!selectedContact || !currentUser) return;
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
     
