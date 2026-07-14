@@ -1858,7 +1858,7 @@ export default function BlueChatApp() {
                   messages.map(msg => {
                     const isMine = msg.senderId === currentUser.id;
                     return (
-                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative group items-center ${messageMenuId === msg.id ? 'z-50' : 'z-10'}`}>
+                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative group items-center ${messageMenuId === msg.id ? 'z-50' : 'z-10'} ${msg.reaction ? 'mb-4' : ''}`}>
                         {isMine && (
                           <div className={`opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity relative mr-2`}>
                              <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
@@ -1937,7 +1937,7 @@ export default function BlueChatApp() {
                             )}
                           </div>
                           {msg.reaction && (
-                            <div className={`absolute -bottom-3 left-4 bg-white border border-slate-100 rounded-full px-1.5 py-0.5 text-sm shadow-sm z-10`}>
+                            <div className={`absolute -bottom-4 ${isMine ? 'right-2' : 'left-2'} bg-white border border-slate-200 rounded-full px-1.5 py-0.5 text-base shadow-md z-10`}>
                                {msg.reaction}
                             </div>
                           )}
