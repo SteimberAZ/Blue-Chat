@@ -959,7 +959,8 @@ export default function BlueChatApp() {
   }, [messages, currentUser]);
 
   const sendMessage = async (text?: string, file?: any, audio?: string) => {
-    const msgText = text !== undefined ? text : newMessage;
+    let msgText = text !== undefined ? text : newMessage;
+    msgText = msgText.slice(0, 1000);
     if (!msgText.trim() && !file && !audio) return;
     if (!selectedContact || !currentUser) return;
 
@@ -2043,6 +2044,7 @@ export default function BlueChatApp() {
                     <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 h-12 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
                       <input 
                         type="text" 
+                        maxLength={1000}
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
@@ -2051,6 +2053,9 @@ export default function BlueChatApp() {
                         placeholder="Escribe un mensaje..." 
                         className="flex-1 bg-transparent border-none outline-none text-slate-700 text-sm md:text-base placeholder-slate-400"
                       />
+                      {newMessage.length > 800 && (
+                         <span className="text-xs text-slate-400 ml-2 font-medium">{newMessage.length}/1000</span>
+                      )}
                     </div>
                   )}
 
