@@ -1368,10 +1368,9 @@ export default function BlueChatApp() {
       <div className="min-h-[100dvh] w-full overflow-hidden bg-blue-50 flex items-center justify-center p-4 font-sans">
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 border border-blue-100">
           <div className="text-center mb-8">
-            <div className="w-24 h-24 flex items-center justify-center mx-auto mb-2 drop-shadow-sm">
-              <img src="/logo.png" alt="Blue-Chat Logo" className="w-full h-full object-contain" />
+            <div className="w-48 h-auto flex items-center justify-center mx-auto mb-4 drop-shadow-sm">
+              <img src="/logo.png" alt="Blue-Chat Logo" className="w-full h-auto object-contain" />
             </div>
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">BlueChat</h1>
             <p className="text-slate-500 text-sm mt-1">Ingresa para chatear de forma segura</p>
           </div>
           
