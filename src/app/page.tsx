@@ -1909,24 +1909,24 @@ export default function BlueChatApp() {
                                <DotsThree size={20} weight="bold"/>
                              </button>
                              {messageMenuId === msg.id && (
-                               <div className="absolute right-0 bottom-[110%] flex flex-col gap-1 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 animate-in zoom-in-95 p-2 min-w-[220px]">
-                                 <div className="flex justify-between items-center p-1 bg-slate-50 rounded-full mb-1">
+                               <div className="fixed bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] border-t border-slate-100 z-50 animate-in slide-in-from-bottom-full p-4 pb-8 md:pb-2 md:p-2 md:absolute md:bottom-[110%] md:inset-x-auto md:right-0 md:rounded-2xl md:min-w-[220px] md:border md:shadow-2xl md:slide-in-from-bottom-2 md:zoom-in-95">
+                                 <div className="flex justify-between items-center p-2 md:p-1 bg-slate-50 rounded-full mb-3 md:mb-1">
                                     {['👍','❤️','😂','😮','🙏'].map(emoji => (
-                                      <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-2xl p-1">{emoji}</button>
+                                      <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-3xl md:text-2xl p-1">{emoji}</button>
                                     ))}
                                  </div>
-                                 <div className="flex flex-col text-sm font-medium">
-                                   <button onClick={() => { setReplyingTo(msg); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <ArrowUUpLeft size={18} /> Responder
+                                 <div className="flex flex-col text-sm font-medium gap-1 md:gap-0">
+                                   <button onClick={() => { setReplyingTo(msg); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <ArrowUUpLeft size={20} className="md:w-[18px] md:h-[18px]" /> Responder
                                    </button>
-                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <ShareFat size={18} /> Reenviar
+                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <ShareFat size={20} className="md:w-[18px] md:h-[18px]" /> Reenviar
                                    </button>
-                                   <button onClick={() => { deleteMessage(msg.id, false); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <Trash size={18} /> Eliminar para mí
+                                   <button onClick={() => { deleteMessage(msg.id, false); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <Trash size={20} className="md:w-[18px] md:h-[18px]" /> Eliminar para mí
                                    </button>
-                                   <button onClick={() => { deleteMessage(msg.id, true); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-3">
-                                     <Trash size={18} weight="fill" /> Eliminar para todos
+                                   <button onClick={() => { deleteMessage(msg.id, true); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-red-500 hover:bg-red-50 rounded-xl flex items-center gap-3">
+                                     <Trash size={20} weight="fill" className="md:w-[18px] md:h-[18px]" /> Eliminar para todos
                                    </button>
                                  </div>
                                </div>
@@ -1993,24 +1993,24 @@ export default function BlueChatApp() {
                                <DotsThree size={20} weight="bold"/>
                              </button>
                              {messageMenuId === msg.id && (
-                               <div className="absolute left-0 bottom-[110%] flex flex-col gap-1 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 animate-in zoom-in-95 p-2 min-w-[220px]">
-                                 <div className="flex justify-between items-center p-1 bg-slate-50 rounded-full mb-1">
+                               <div className="fixed bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] border-t border-slate-100 z-50 animate-in slide-in-from-bottom-full p-4 pb-8 md:pb-2 md:p-2 md:absolute md:bottom-[110%] md:inset-x-auto md:left-0 md:rounded-2xl md:min-w-[220px] md:border md:shadow-2xl md:slide-in-from-bottom-2 md:zoom-in-95">
+                                 <div className="flex justify-between items-center p-2 md:p-1 bg-slate-50 rounded-full mb-3 md:mb-1">
                                     {['👍','❤️','😂','😮','🙏'].map(emoji => (
-                                      <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-2xl p-1">{emoji}</button>
+                                      <button key={emoji} onClick={() => { reactToMessage(msg.id, emoji); setMessageMenuId(null); }} className="hover:scale-125 transition-transform text-3xl md:text-2xl p-1">{emoji}</button>
                                     ))}
                                  </div>
-                                 <div className="flex flex-col text-sm font-medium">
-                                   <button onClick={() => { setReplyingTo(msg); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <ArrowUUpLeft size={18} /> Responder
+                                 <div className="flex flex-col text-sm font-medium gap-1 md:gap-0">
+                                   <button onClick={() => { setReplyingTo(msg); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <ArrowUUpLeft size={20} className="md:w-[18px] md:h-[18px]" /> Responder
                                    </button>
-                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <ShareFat size={18} /> Reenviar
+                                   <button onClick={() => { setForwardMessage(msg); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <ShareFat size={20} className="md:w-[18px] md:h-[18px]" /> Reenviar
                                    </button>
-                                   <button onClick={() => { deleteMessage(msg.id, false); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
-                                     <Trash size={18} /> Eliminar para mí
+                                   <button onClick={() => { deleteMessage(msg.id, false); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-3">
+                                     <Trash size={20} className="md:w-[18px] md:h-[18px]" /> Eliminar para mí
                                    </button>
-                                   <button onClick={() => { deleteMessage(msg.id, true); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-3">
-                                     <Trash size={18} weight="fill" /> Eliminar para todos
+                                   <button onClick={() => { deleteMessage(msg.id, true); setMessageMenuId(null); }} className="w-full text-left px-4 py-3 md:px-3 md:py-2 text-red-500 hover:bg-red-50 rounded-xl flex items-center gap-3">
+                                     <Trash size={20} weight="fill" className="md:w-[18px] md:h-[18px]" /> Eliminar para todos
                                    </button>
                                  </div>
                                </div>
@@ -2047,15 +2047,15 @@ export default function BlueChatApp() {
                       <Paperclip size={24} weight="bold"/>
                     </button>
                     {showAttachments && (
-                       <div className="absolute bottom-14 left-0 bg-white border border-slate-100 shadow-xl rounded-2xl p-2 flex flex-col gap-1 z-[100] w-48 animate-in fade-in slide-in-from-bottom-2">
-                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'image/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
-                             <ImageIcon className="text-blue-500" size={20} weight="fill"/> Foto
+                       <div className="fixed bottom-[80px] left-4 bg-white border border-slate-100 shadow-2xl rounded-2xl p-3 flex flex-col gap-2 z-[100] w-[200px] animate-in slide-in-from-bottom-4 md:absolute md:bottom-14 md:left-0 md:p-2 md:gap-1 md:w-48">
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'image/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-4 py-3 md:px-3 md:py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <ImageIcon className="text-blue-500" size={22} weight="fill"/> Foto
                           </button>
-                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'video/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
-                             <VideoCamera className="text-purple-500" size={20} weight="fill"/> Video
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = 'video/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-4 py-3 md:px-3 md:py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <VideoCamera className="text-purple-500" size={22} weight="fill"/> Video
                           </button>
-                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = '*/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
-                             <FileText className="text-emerald-500" size={20} weight="fill"/> Documento
+                          <button onClick={() => { if(fileInputRef.current) { fileInputRef.current.accept = '*/*'; fileInputRef.current.click(); setShowAttachments(false); } }} className="flex items-center gap-3 px-4 py-3 md:px-3 md:py-2 hover:bg-slate-50 rounded-xl text-slate-700 font-medium transition-colors">
+                             <FileText className="text-emerald-500" size={22} weight="fill"/> Documento
                           </button>
                        </div>
                     )}
@@ -2067,9 +2067,9 @@ export default function BlueChatApp() {
                        <Smiley size={24} weight="bold"/>
                      </button>
                      {showEmojis && (
-                        <div className="absolute bottom-14 left-0 md:-left-12 bg-white border border-slate-100 shadow-xl rounded-2xl p-3 grid grid-cols-5 gap-2 z-[100] w-[260px] animate-in fade-in slide-in-from-bottom-2">
+                        <div className="fixed bottom-[80px] left-4 right-4 max-w-sm mx-auto bg-white border border-slate-100 shadow-2xl rounded-2xl p-4 grid grid-cols-5 gap-3 z-[100] animate-in slide-in-from-bottom-4 md:absolute md:bottom-14 md:left-0 md:right-auto md:w-[260px] md:p-3 md:gap-2 md:mx-0">
                            {TOP_EMOJIS.map(emoji => (
-                              <button key={emoji} onClick={() => { setNewMessage(prev => prev + emoji); setShowEmojis(false); }} className="text-2xl hover:bg-slate-100 rounded-lg p-2 transition-colors flex items-center justify-center">
+                              <button key={emoji} onClick={() => { setNewMessage(prev => prev + emoji); setShowEmojis(false); }} className="text-3xl md:text-2xl hover:bg-slate-100 rounded-xl p-2 transition-colors flex items-center justify-center">
                                 {emoji}
                               </button>
                            ))}
