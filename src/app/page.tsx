@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip, Shield, ChartBar, Database } from '@phosphor-icons/react';
 
 const renderMessageText = (text: string, isMine: boolean) => {
   if (!text) return null;
@@ -48,6 +48,11 @@ export default function BlueChatApp() {
   const [searchShortId, setSearchShortId] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
+
+  // Estado Modo Admin
+  const [adminUsers, setAdminUsers] = useState<any[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminStats, setAdminStats] = useState({ totalUsers: 0, totalOfflineMsgs: 0, onlineSessions: 0 });
   const [editingNickname, setEditingNickname] = useState('');
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [editingMyProfileName, setEditingMyProfileName] = useState('');
@@ -59,7 +64,7 @@ export default function BlueChatApp() {
 
   // Interfaz Menú
   const [showMenu, setShowMenu] = useState(false);
-  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | 'image_viewer' | null>(null);
+  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | 'image_viewer' | 'admin' | null>(null);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   
   // Menús de Mensaje y Visor
@@ -1350,6 +1355,39 @@ export default function BlueChatApp() {
       </div>
     );
   }
+  const fetchAdminData = async () => {
+    if (currentUser?.email !== 'randyarteaga1519@gmail.com') return;
+    setAdminLoading(true);
+    try {
+      const { data: usersData } = await supabase.from('employees').select('*').order('created_at', { ascending: false });
+      if (usersData) setAdminUsers(usersData);
+      
+      const { count: usersCount } = await supabase.from('employees').select('*', { count: 'exact', head: true });
+      const { count: msgsCount } = await supabase.from('offline_messages').select('*', { count: 'exact', head: true });
+      const { count: sessCount } = await supabase.from('user_sessions').select('*', { count: 'exact', head: true });
+      
+      setAdminStats({
+        totalUsers: usersCount || 0,
+        totalOfflineMsgs: msgsCount || 0,
+        onlineSessions: sessCount || 0
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const deleteUserAdmin = async (userId: string) => {
+    if (!confirm('¿Seguro que deseas eliminar este usuario permanentemente?')) return;
+    try {
+      await supabase.from('employees').delete().eq('id', userId);
+      setAdminUsers(prev => prev.filter(u => u.id !== userId));
+    } catch (e) {
+      alert("Error eliminando usuario. Verifica permisos en Supabase (RLS).");
+    }
+  };
+
 
   if (isAppLoading) {
     return (
@@ -1660,6 +1698,98 @@ export default function BlueChatApp() {
         </div>
       )}
 
+      {/* Modal Modo Admin */}
+      {activeModal === 'admin' && currentUser?.email === 'randyarteaga1519@gmail.com' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex flex-col md:items-center md:justify-center transition-all animate-in fade-in">
+          <div className="bg-slate-50 w-full h-full md:w-[800px] md:h-[80vh] md:rounded-3xl shadow-2xl flex flex-col relative overflow-hidden animate-in slide-in-from-bottom-8 md:zoom-in-95 duration-300">
+            {/* Header */}
+            <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm relative z-10 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center">
+                  <Shield size={24} weight="fill" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-extrabold text-slate-800">Panel de Administración</h2>
+                  <p className="text-xs font-semibold text-slate-500">Acceso Restringido</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveModal(null)} className="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors">
+                <X size={20} weight="bold" />
+              </button>
+            </div>
+            
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+               {adminLoading ? (
+                 <div className="flex items-center justify-center h-40">
+                   <div className="w-10 h-10 border-4 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                 </div>
+               ) : (
+                 <>
+                   {/* Stats */}
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                       <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center"><Users size={24} weight="fill"/></div>
+                       <div>
+                         <p className="text-sm font-semibold text-slate-500">Usuarios Totales</p>
+                         <p className="text-2xl font-extrabold text-slate-800">{adminStats.totalUsers}</p>
+                       </div>
+                     </div>
+                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                       <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center"><Desktop size={24} weight="fill"/></div>
+                       <div>
+                         <p className="text-sm font-semibold text-slate-500">Sesiones Activas (Total)</p>
+                         <p className="text-2xl font-extrabold text-slate-800">{adminStats.onlineSessions}</p>
+                       </div>
+                     </div>
+                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                       <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center"><Database size={24} weight="fill"/></div>
+                       <div>
+                         <p className="text-sm font-semibold text-slate-500">Mensajes en Cola</p>
+                         <p className="text-2xl font-extrabold text-slate-800">{adminStats.totalOfflineMsgs}</p>
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* Users List */}
+                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                     <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                       <h3 className="font-bold text-slate-800 flex items-center gap-2"><ChartBar size={20} className="text-slate-500"/> Gestión de Usuarios y Logs</h3>
+                     </div>
+                     <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
+                       {adminUsers.length === 0 ? (
+                         <div className="p-8 text-center text-slate-500">No hay usuarios registrados o no se pudieron cargar.</div>
+                       ) : (
+                         adminUsers.map(u => (
+                           <div key={u.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between hover:bg-slate-50 transition-colors gap-3">
+                             <div className="flex items-center gap-3">
+                               <div className="w-10 h-10 bg-gradient-to-tr from-slate-200 to-slate-300 rounded-full flex items-center justify-center text-slate-600 font-bold uppercase shrink-0">{u.first_name?.[0] || 'U'}</div>
+                               <div>
+                                 <p className="font-bold text-slate-800 flex items-center gap-2">
+                                   {u.first_name} 
+                                   <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-md">{u.short_id}</span>
+                                 </p>
+                                 <p className="text-xs font-medium text-slate-500">{u.email}</p>
+                               </div>
+                             </div>
+                             <div className="flex items-center justify-between md:justify-end w-full md:w-auto gap-2 border-t md:border-none pt-2 md:pt-0 border-slate-100 mt-2 md:mt-0">
+                               <span className="text-[10px] text-slate-400 font-medium md:inline-block">ID: {u.id.slice(0,8)}...</span>
+                               <button onClick={() => deleteUserAdmin(u.id)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Eliminar Usuario">
+                                 <Trash size={18} weight="fill"/>
+                               </button>
+                             </div>
+                           </div>
+                         ))
+                       )}
+                     </div>
+                   </div>
+                 </>
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modales Extra: Reenvío y Visor */}
       {forwardMessage && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setForwardMessage(null)}>
@@ -1792,6 +1922,11 @@ export default function BlueChatApp() {
                 <button onClick={() => { setShowMenu(false); fetchActiveSessions(); setActiveModal('sessions'); }} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-slate-700 transition-colors border-t border-slate-100">
                   <Desktop size={18} className="text-blue-500" /> Sesiones Abiertas
                 </button>
+                {currentUser?.email === 'randyarteaga1519@gmail.com' && (
+                  <button onClick={() => { setShowMenu(false); setActiveModal('admin'); fetchAdminData(); }} className="w-full text-left px-4 py-3 hover:bg-red-50 flex items-center gap-3 text-red-700 font-bold transition-colors border-t border-slate-100">
+                    <Shield size={18} weight="fill" className="text-red-600" /> Modo Admin
+                  </button>
+                )}
                 <div className="my-1 border-t border-slate-100"></div>
                 <button onClick={() => { setShowMenu(false); setActiveModal('profile'); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3 font-medium">
                   <User size={18} className="text-purple-500" weight="fill" /> Mi Perfil
