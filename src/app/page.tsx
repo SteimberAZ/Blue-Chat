@@ -1365,52 +1365,58 @@ export default function BlueChatApp() {
   // UI: LOGIN
   if (!session || !currentUser) {
     return (
-      <div className="min-h-[100dvh] w-full overflow-hidden bg-blue-50 flex items-center justify-center p-4 font-sans">
-        <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 border border-blue-100">
-          <div className="text-center mb-8">
-            <div className="w-48 h-auto flex items-center justify-center mx-auto mb-4 drop-shadow-sm">
-              <img src="/logo.png" alt="Blue-Chat Logo" className="w-full h-auto object-contain" />
+      <div className="min-h-[100dvh] w-full overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-50/50 to-white flex items-center justify-center p-4 font-sans relative">
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+          <div className="absolute -top-20 -left-20 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 right-0 w-[30rem] h-[30rem] bg-indigo-400/10 rounded-full blur-3xl"></div>
+        </div>
+        
+        <div className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-blue-900/5 w-full max-w-md p-8 sm:p-10 border border-white relative z-10">
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mx-auto mb-5 p-3 transform transition hover:scale-105">
+              <img src="/iso-logo.png" alt="Blue-Chat Logo" className="w-full h-full object-contain drop-shadow-sm" />
             </div>
-            <p className="text-slate-500 text-sm mt-1">Ingresa para chatear de forma segura</p>
+            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight">BlueChat</h1>
+            <p className="text-slate-500 text-sm mt-2 font-medium">Ingresa para chatear de forma segura</p>
           </div>
           
-          <form onSubmit={handleAuth} className="space-y-4">
+          <form onSubmit={handleAuth} className="space-y-5">
             {!isLoginMode && (
               <>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Nombre</label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 ml-1">Nombre</label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre" className="w-full bg-slate-50/50 border border-slate-200/80 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:bg-white transition-all shadow-sm" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">ID</label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 ml-1">ID</label>
                   <div className="relative">
-                    <IdentificationCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value.toUpperCase())} placeholder="Ingresa 4 letras o números" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                    <IdentificationCard className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input type="text" maxLength={4} value={shortId} onChange={e => setShortId(e.target.value.toUpperCase())} placeholder="Ingresa 4 letras o números" className="w-full bg-slate-50/50 border border-slate-200/80 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:bg-white transition-all shadow-sm" />
                   </div>
                 </div>
               </>
             )}
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Correo Electrónico</label>
+              <label className="block text-xs font-bold text-slate-500 mb-1.5 ml-1">Correo Electrónico</label>
               <div className="relative">
-                <EnvelopeSimple className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="ejemplo@correo.com" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                <EnvelopeSimple className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="ejemplo@correo.com" className="w-full bg-slate-50/50 border border-slate-200/80 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:bg-white transition-all shadow-sm" />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Contraseña</label>
+              <label className="block text-xs font-bold text-slate-500 mb-1.5 ml-1">Contraseña</label>
               <div className="relative">
-                <LockKey className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-colors" />
+                <LockKey className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full bg-slate-50/50 border border-slate-200/80 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:bg-white transition-all shadow-sm" />
               </div>
             </div>
-            {authError && <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100">{authError}</div>}
-            {authSuccess && <div className="p-3 bg-emerald-50 text-emerald-600 text-xs rounded-xl border border-emerald-100">{authSuccess}</div>}
-            <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30 disabled:opacity-70 mt-2">
-              {isLoading ? 'Procesando...' : (isLoginMode ? 'Iniciar Sesión' : 'Registrarse')}
+            {authError && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></div>{authError}</div>}
+            {authSuccess && <div className="p-3 bg-emerald-50 text-emerald-600 text-sm rounded-xl border border-emerald-100 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></div>{authSuccess}</div>}
+            <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-2xl hover:opacity-90 transition-all shadow-lg shadow-blue-500/30 disabled:opacity-70 mt-4 active:scale-[0.98]">
+              {isLoading ? 'Procesando...' : (isLoginMode ? 'Iniciar Sesión' : 'Crear Cuenta')}
             </button>
           </form>
 
