@@ -39,6 +39,7 @@ export default function BlueChatApp() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAppLoading, setIsAppLoading] = useState(true);
 
   // Estado del modal de amigos
   const [showAddContact, setShowAddContact] = useState(false);
@@ -180,7 +181,11 @@ export default function BlueChatApp() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchUserData(session.user);
+      if (session) {
+        fetchUserData(session.user);
+      } else {
+        setIsAppLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -225,6 +230,7 @@ export default function BlueChatApp() {
         setCurrentUser(null);
         setContacts([]);
         hasCheckedDeviceRef.current = false;
+        setIsAppLoading(false);
       }
     });
 
@@ -498,6 +504,7 @@ export default function BlueChatApp() {
     if (myProfile) {
       setCurrentUser(myProfile);
       registerDeviceSession(user);
+      setIsAppLoading(false);
     } else {
       const firstName = user.user_metadata?.first_name || 'Usuario';
       const userShortId = user.user_metadata?.short_id || '0000';
@@ -515,8 +522,10 @@ export default function BlueChatApp() {
       if (!error) {
         setCurrentUser(newProfile);
         registerDeviceSession(user);
+        setIsAppLoading(false);
       } else {
         setCurrentUser({ id: userId, first_name: firstName, last_name: '', short_id: userShortId });
+        setIsAppLoading(false);
       }
     }
 
@@ -1342,6 +1351,17 @@ export default function BlueChatApp() {
     );
   }
 
+  if (isAppLoading) {
+    return (
+      <div className="min-h-[100dvh] w-full bg-slate-50 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="relative w-32 h-32 md:w-40 md:h-40 animate-pulse">
+           <img src="/logo.png" alt="Cargando Blue-Chat" className="w-full h-full object-contain drop-shadow-xl" />
+        </div>
+        <p className="mt-6 text-slate-500 font-medium tracking-widest text-sm uppercase">Iniciando...</p>
+      </div>
+    );
+  }
+
   // UI: LOGIN
   if (!session || !currentUser) {
     return (
@@ -1901,7 +1921,7 @@ export default function BlueChatApp() {
                 {messageMenuId && (
                   <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-all cursor-pointer" onClick={() => setMessageMenuId(null)}></div>
                 )}
-                <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
+                <div className="absolute inset-0 pointer-events-none opacity-[0.04] z-0 bg-slate-900" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'repeat', maskSize: '150px', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'repeat', WebkitMaskSize: '150px' }}></div>
                 
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
