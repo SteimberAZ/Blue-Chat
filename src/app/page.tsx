@@ -968,9 +968,9 @@ export default function BlueChatApp() {
     if (!isNotAtBottom) setUnreadInChat(0);
   };
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (smooth: boolean = true) => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+      chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
       setUnreadInChat(0);
       setShowScrollButton(false);
     }
@@ -986,7 +986,7 @@ export default function BlueChatApp() {
     if (isInitialLoad) {
       lastContactId.current = selectedContact?.id || null;
       prevMessagesLength.current = messages.length;
-      setTimeout(scrollToBottom, 100); 
+      setTimeout(() => scrollToBottom(false), 10); 
       return;
     }
 
