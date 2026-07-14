@@ -1372,12 +1372,12 @@ export default function BlueChatApp() {
         </div>
         
         <div className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-blue-900/5 w-full max-w-md p-8 sm:p-10 border border-white relative z-10">
-          <div className="text-center mb-10">
-            <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mx-auto mb-5 p-3 transform transition hover:scale-105">
-              <img src="/iso-logo.png" alt="Blue-Chat Logo" className="w-full h-full object-contain drop-shadow-sm" />
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight mb-4">BlueChat</h1>
+            <div className="mx-auto flex justify-center drop-shadow-xl mb-6">
+              <div className="w-32 h-32 transform transition hover:scale-105 bg-gradient-to-tr from-blue-600 to-indigo-600" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
             </div>
-            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight">BlueChat</h1>
-            <p className="text-slate-500 text-sm mt-2 font-medium">Ingresa para chatear de forma segura</p>
+            <p className="text-slate-500 text-sm font-medium">Ingresa para chatear de forma segura</p>
           </div>
           
           <form onSubmit={handleAuth} className="space-y-5">
