@@ -377,6 +377,11 @@ export default function BlueChatApp() {
                     await localforage.setItem(`unread_${roomId}`, unread + 1);
                     setChatMeta(prev => ({ ...prev, [msg.sender_id]: { lastMessage: decryptedMsg, unreadCount: unread + 1 } }));
                  }
+
+                 if (channelsRef.current && channelsRef.current[roomId]) {
+                    const encryptedAck = await encryptPayload({ messageId: decryptedMsg.id }, roomId);
+                    channelsRef.current[roomId].send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
+                 }
                }
             }
           }
@@ -669,8 +674,48 @@ export default function BlueChatApp() {
         config: { presence: { key: currentUser.id } }
       });
 
-      // Broadcast de new_message eliminado. Ahora se maneja 100% por Postgres Changes
-      // para asegurar fluidez y que ningún paquete se pierda (Store and Forward).
+      channel.on('broadcast', { event: 'new_message' }, async (payloadObj) => {
+        let incomingMsg = payloadObj.payload;
+        if (incomingMsg.e2ee) {
+           incomingMsg = await decryptPayload(incomingMsg.data, roomId);
+           if (!incomingMsg) return;
+        }
+        if (incomingMsg.senderId !== currentUser.id) {
+          const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
+          channel.send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
+        }
+
+        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+        roomWritePromises.current[roomId] = prevPromise.then(async () => {
+          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+          if (history.find((m:any) => m.id === incomingMsg.id)) return;
+          
+          history = [...history, incomingMsg];
+          history.sort((a: any, b: any) => a.createdAt - b.createdAt);
+          
+          setHiddenChats(prev => {
+            if (prev.includes(contact.id)) {
+              const updated = prev.filter(id => id !== contact.id);
+              localforage.setItem('hidden_chats', updated);
+              return updated;
+            }
+            return prev;
+          });
+
+          await localforage.setItem(`chat_history_${roomId}`, history);
+
+          if (selectedContactRef.current?.id === contact.id) {
+            setMessages(history);
+            await localforage.setItem(`unread_${roomId}`, 0);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
+          } else {
+            const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+            const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
+            await localforage.setItem(`unread_${roomId}`, newUnread);
+            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
+          }
+        });
+      });
 
       channel.on('broadcast', { event: 'delete_message' }, async (payloadObj) => {
         let incomingReq = payloadObj.payload;
@@ -959,6 +1004,11 @@ export default function BlueChatApp() {
       receiver_id: selectedContact.id,
       payload: encryptedMsg
     });
+    
+    // Broadcast simultáneo para entrega instantánea (latencia cero) si el otro está conectado
+    if (channelsRef.current && channelsRef.current[roomId]) {
+      channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
+    }
     if (!onlineUsersRef.current[roomId]) {
       const rateLimitKey = `email_throttle_${selectedContact.id}`;
       const lastSentTime: any = await localforage.getItem(rateLimitKey);
