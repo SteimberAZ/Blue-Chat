@@ -368,8 +368,15 @@ export default function BlueChatApp() {
                  history.sort((a: any, b: any) => a.createdAt - b.createdAt);
                  await localforage.setItem(`chat_history_${roomId}`, history);
                  
-                 let unread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
-                 await localforage.setItem(`unread_${roomId}`, unread + 1);
+                 if (selectedContactRef.current?.id === msg.sender_id) {
+                    setMessages([...history]);
+                    await localforage.setItem(`unread_${roomId}`, 0);
+                    setChatMeta(prev => ({ ...prev, [msg.sender_id]: { lastMessage: decryptedMsg, unreadCount: 0 } }));
+                 } else {
+                    let unread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+                    await localforage.setItem(`unread_${roomId}`, unread + 1);
+                    setChatMeta(prev => ({ ...prev, [msg.sender_id]: { lastMessage: decryptedMsg, unreadCount: unread + 1 } }));
+                 }
                }
             }
           }
