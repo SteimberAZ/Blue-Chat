@@ -582,12 +582,65 @@ export default function BlueChatApp() {
        }
     });
 
+    const msgQueueChannel = supabase.channel(`offline-msgs-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'offline_messages', filter: `receiver_id=eq.${currentUser.id}` },
+        async (payload) => {
+          const dbMsg = payload.new as any;
+          const roomId = getChatRoomId(dbMsg.sender_id, currentUser.id);
+          
+          let incomingMsg = await decryptPayload(dbMsg.payload, roomId);
+          if (!incomingMsg) return;
+
+          // Whatsapp-style: Eliminar de la cola inmediatamente (Store and Forward)
+          await supabase.from('offline_messages').delete().eq('id', dbMsg.id);
+
+          if (channelsRef.current[roomId]) {
+             const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
+             channelsRef.current[roomId].send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
+          }
+
+          const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
+          roomWritePromises.current[roomId] = prevPromise.then(async () => {
+            let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+            if (history.find((m:any) => m.id === incomingMsg.id)) return;
+            
+            history = [...history, incomingMsg];
+            history.sort((a: any, b: any) => a.createdAt - b.createdAt);
+            
+            setHiddenChats(prev => {
+              if (prev.includes(dbMsg.sender_id)) {
+                const updated = prev.filter(id => id !== dbMsg.sender_id);
+                localforage.setItem('hidden_chats', updated);
+                return updated;
+              }
+              return prev;
+            });
+
+            await localforage.setItem(`chat_history_${roomId}`, history);
+
+            if (selectedContactRef.current?.id === dbMsg.sender_id) {
+              setMessages(history);
+              await localforage.setItem(`unread_${roomId}`, 0);
+              setChatMeta(prev => ({ ...prev, [dbMsg.sender_id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
+            } else {
+              const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+              const newUnread = currentUnread + 1;
+              await localforage.setItem(`unread_${roomId}`, newUnread);
+              setChatMeta(prev => ({ ...prev, [dbMsg.sender_id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
+            }
+          });
+        }
+      ).subscribe();
+
     return () => { 
       supabase.removeChannel(channel);
       globalChannelRef.current = null;
       clearInterval(interval);
       supabase.removeChannel(deviceChannel);
       supabase.removeChannel(presenceChannel);
+      supabase.removeChannel(msgQueueChannel);
     };
   }, [currentUser]);
 
@@ -609,48 +662,8 @@ export default function BlueChatApp() {
         config: { presence: { key: currentUser.id } }
       });
 
-      channel.on('broadcast', { event: 'new_message' }, async (payloadObj) => {
-        let incomingMsg = payloadObj.payload;
-        if (incomingMsg.e2ee) {
-           incomingMsg = await decryptPayload(incomingMsg.data, roomId);
-           if (!incomingMsg) return;
-        }
-        if (incomingMsg.senderId !== currentUser.id) {
-          const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
-          channel.send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
-        }
-
-        const prevPromise = roomWritePromises.current[roomId] || Promise.resolve();
-        roomWritePromises.current[roomId] = prevPromise.then(async () => {
-          let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
-          if (history.find((m:any) => m.id === incomingMsg.id)) return;
-          
-          history = [...history, incomingMsg];
-          history.sort((a: any, b: any) => a.createdAt - b.createdAt);
-          
-          setHiddenChats(prev => {
-            if (prev.includes(contact.id)) {
-              const updated = prev.filter(id => id !== contact.id);
-              localforage.setItem('hidden_chats', updated);
-              return updated;
-            }
-            return prev;
-          });
-
-          await localforage.setItem(`chat_history_${roomId}`, history);
-
-          if (selectedContactRef.current?.id === contact.id) {
-            setMessages(history);
-            await localforage.setItem(`unread_${roomId}`, 0);
-            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: 0 } }));
-          } else {
-            const currentUnread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
-            const newUnread = incomingMsg.senderId !== currentUser.id ? currentUnread + 1 : currentUnread;
-            await localforage.setItem(`unread_${roomId}`, newUnread);
-            setChatMeta(prev => ({ ...prev, [contact.id]: { lastMessage: incomingMsg, unreadCount: newUnread } }));
-          }
-        });
-      });
+      // Broadcast de new_message eliminado. Ahora se maneja 100% por Postgres Changes
+      // para asegurar fluidez y que ningún paquete se pierda (Store and Forward).
 
       channel.on('broadcast', { event: 'delete_message' }, async (payloadObj) => {
         let incomingReq = payloadObj.payload;
@@ -932,18 +945,13 @@ export default function BlueChatApp() {
       return prev;
     });
 
-    if (channelsRef.current[roomId]) {
-      const encryptedMsg = await encryptPayload(newMsgObj, roomId);
-      channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
-      
-      // Guardar en tabla offline por si el otro usuario no está escuchando
-      await supabase.from('offline_messages').insert({
-        sender_id: currentUser.id,
-        receiver_id: selectedContact.id,
-        payload: encryptedMsg
-      });
-    }
-
+    // Enviar siempre a la base de datos (Store and Forward garantizado)
+    const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+    await supabase.from('offline_messages').insert({
+      sender_id: currentUser.id,
+      receiver_id: selectedContact.id,
+      payload: encryptedMsg
+    });
     if (!onlineUsersRef.current[roomId]) {
       const rateLimitKey = `email_throttle_${selectedContact.id}`;
       const lastSentTime: any = await localforage.getItem(rateLimitKey);
