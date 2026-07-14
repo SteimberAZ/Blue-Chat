@@ -1389,6 +1389,17 @@ export default function BlueChatApp() {
     }
   };
 
+  const closeAllSessionsAdmin = async () => {
+    if (!confirm('¿Seguro que deseas cerrar TODAS las sesiones activas en todos los dispositivos?')) return;
+    try {
+      await supabase.from('user_sessions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      setAdminStats(prev => ({ ...prev, onlineSessions: 0 }));
+      alert("Todas las sesiones activas han sido cerradas.");
+    } catch (e) {
+      alert("Error cerrando sesiones.");
+    }
+  };
+
   const deleteUserAdmin = async (userId: string) => {
     if (!confirm('¿Seguro que deseas eliminar este usuario permanentemente?')) return;
     try {
@@ -1764,8 +1775,11 @@ export default function BlueChatApp() {
 
                    {/* Users List */}
                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                     <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                     <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-3">
                        <h3 className="font-bold text-slate-800 flex items-center gap-2"><ChartBar size={20} className="text-slate-500"/> Gestión de Usuarios y Logs</h3>
+                       <button onClick={closeAllSessionsAdmin} className="text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors w-full md:w-auto">
+                         <Desktop size={16} weight="bold"/> Cerrar Todas las Sesiones
+                       </button>
                      </div>
                      <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
                        {adminUsers.length === 0 ? (
