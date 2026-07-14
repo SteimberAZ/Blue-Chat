@@ -769,8 +769,7 @@ export default function BlueChatApp() {
           const msgToDelete = history.find((m: any) => m.id === incomingReq.messageId);
           if (!msgToDelete) return; 
           
-          // Ciberseguridad: Validar que el remitente del broadcast es el autor del mensaje
-          if (msgToDelete.senderId !== contact.id || incomingReq.senderId !== contact.id) return; 
+          if (incomingReq.senderId !== contact.id) return; 
           
           const updatedHistory = history.filter((m: any) => m.id !== incomingReq.messageId);
           await localforage.setItem(`chat_history_${roomId}`, updatedHistory);
@@ -2009,6 +2008,9 @@ export default function BlueChatApp() {
                                    </button>
                                    <button onClick={() => { deleteMessage(msg.id, false); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-3">
                                      <Trash size={18} /> Eliminar para mí
+                                   </button>
+                                   <button onClick={() => { deleteMessage(msg.id, true); setMessageMenuId(null); }} className="w-full text-left px-3 py-2 text-red-500 hover:bg-red-50 rounded-lg flex items-center gap-3">
+                                     <Trash size={18} weight="fill" /> Eliminar para todos
                                    </button>
                                  </div>
                                </div>
