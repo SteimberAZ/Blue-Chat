@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip } from '@phosphor-icons/react';
 
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
@@ -95,6 +95,7 @@ export default function BlueChatApp() {
   const [showAttachments, setShowAttachments] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachmentType, setAttachmentType] = useState<'image'|'video'|'document'|null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -272,18 +273,42 @@ export default function BlueChatApp() {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processFileSelection = (file: File | undefined | null) => {
     if (!file || !currentUser) return;
-    
-    // Nuevo límite: 50MB (o lo que configure el usuario en Supabase)
     if (file.size > 50 * 1024 * 1024) {
       showAlert("Archivo grande", "El archivo excede el límite de 50MB.");
       return;
     }
-
     setShowAttachments(false);
+    setPendingFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    processFileSelection(e.target.files?.[0]);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const file = e.clipboardData.files?.[0];
+    if (file) {
+      e.preventDefault();
+      processFileSelection(file);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFileSelection(file);
+    }
+  };
+
+  const confirmFileSend = async () => {
+    if (!pendingFile || !currentUser) return;
+    const file = pendingFile;
+    setPendingFile(null);
+    
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     const filePath = `${currentUser.id}/${fileName}`;
@@ -303,8 +328,6 @@ export default function BlueChatApp() {
     } catch (err: any) {
       showAlert("Error", "No se pudo subir el archivo: " + err.message);
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const fetchFriends = async (userId: string) => {
@@ -1841,7 +1864,13 @@ export default function BlueChatApp() {
                 </div>
               </header>
 
-              <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative">
+              <div 
+                ref={chatContainerRef} 
+                onScroll={handleScroll} 
+                onDrop={handleDrop}
+                onDragOver={(e) => e.preventDefault()}
+                className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative"
+              >
                 
                 {messageMenuId && (
                   <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-all cursor-pointer" onClick={() => setMessageMenuId(null)}></div>
@@ -1997,7 +2026,7 @@ export default function BlueChatApp() {
                   {/* Menú Adjuntos */}
                   <div className="relative">
                     <button onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
-                      <Plus size={24} weight="bold"/>
+                      <Paperclip size={24} weight="bold"/>
                     </button>
                     {showAttachments && (
                        <div className="absolute bottom-14 left-0 bg-white border border-slate-100 shadow-xl rounded-2xl p-2 flex flex-col gap-1 z-[100] w-48 animate-in fade-in slide-in-from-bottom-2">
@@ -2048,6 +2077,7 @@ export default function BlueChatApp() {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                        onPaste={handlePaste}
                         onFocus={() => setIsTyping(true)}
                         onBlur={() => setIsTyping(false)}
                         placeholder="Escribe un mensaje..." 
@@ -2080,6 +2110,22 @@ export default function BlueChatApp() {
                   )}
                 </div>
               </footer>
+              {pendingFile && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[100] flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl p-6 max-w-sm w-full flex flex-col items-center shadow-2xl animate-in zoom-in-95">
+                    <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
+                      <FileText size={40} weight="fill" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 text-center mb-1 w-full truncate px-4">{pendingFile.name}</h3>
+                    <p className="text-sm text-slate-500 mb-6">{(pendingFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                    
+                    <div className="flex w-full gap-3">
+                      <button onClick={() => setPendingFile(null)} className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">Cancelar</button>
+                      <button onClick={confirmFileSend} className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors">Enviar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex-1 bg-[#f0f4f8] flex flex-col items-center justify-center p-8 text-center border-l border-white/50 relative z-10">
