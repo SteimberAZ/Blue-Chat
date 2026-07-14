@@ -129,6 +129,17 @@ export default function BlueChatApp() {
   // Refs para evitar problemas de stale-closures en los listeners globales
   const selectedContactRef = useRef<any>(null);
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
+
+  // Tecla ESC para cerrar chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedContact(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   
   const channelsRef = useRef<Record<string, any>>({});
   const roomWritePromises = useRef<Record<string, Promise<void>>>({}); 
@@ -2326,8 +2337,8 @@ export default function BlueChatApp() {
             </>
           ) : (
             <div className="flex-1 bg-[#f0f4f8] flex flex-col items-center justify-center p-8 text-center border-l border-white/50 relative z-10">
-              <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                <ChatIcon className="w-12 h-12 text-blue-500" />
+              <div className="mx-auto flex justify-center drop-shadow-xl mb-8">
+                <div className="w-32 h-32 transform transition hover:scale-105 bg-gradient-to-tr from-slate-300 to-slate-400 opacity-50" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
               </div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2">BlueChat para Web</h2>
               <p className="text-slate-500 max-w-md">Selecciona un chat en la barra lateral para comenzar a enviar mensajes de forma privada y local.</p>
