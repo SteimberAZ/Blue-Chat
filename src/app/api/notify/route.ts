@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializa Resend con la variable de entorno.
-const resend = new Resend(process.env.RESEND_API_KEY || 're_mock_key_12345');
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 export async function POST(request: Request) {
   try {
@@ -30,12 +37,6 @@ export async function POST(request: Request) {
     }
 
     const isTransfer = type === 'transfer';
-
-    // Modo Mock: Si el usuario no ha puesto su RESEND_API_KEY en Vercel, simulamos el envío en consola.
-    if (!process.env.RESEND_API_KEY) {
-      console.log(`[MOCK EMAIL] Para: ${recipientEmail} | Asunto: ${isTransfer ? 'Transferencia' : 'Mensaje'}`);
-      return NextResponse.json({ success: true, mock: true, message: 'Correo simulado (Falta RESEND_API_KEY)' });
-    }
 
     const subject = isTransfer 
       ? `Tu código de transferencia BlueChat es: ${code}` 
@@ -74,19 +75,17 @@ export async function POST(request: Request) {
         </div>
     `;
 
-    const { data, error } = await resend.emails.send({
-      from: 'BlueChat Seguridad <onboarding@resend.dev>',
+    // NOTA: Brevo requiere que el correo "from" esté verificado en tu cuenta.
+    const info = await transporter.sendMail({
+      from: `"BlueChat" <${process.env.SMTP_FROM_EMAIL || 'notificaciones@bluechat.com'}>`, 
       to: recipientEmail,
       subject: subject,
-      html: htmlContent
+      html: htmlContent,
     });
 
-    if (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, data });
-  } catch (error) {
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ success: true, messageId: info.messageId });
+  } catch (error: any) {
+    console.error("SMTP Error:", error);
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

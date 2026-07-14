@@ -272,25 +272,38 @@ export default function BlueChatApp() {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !currentUser) return;
     
-    if (file.size > 2 * 1024 * 1024) {
-      showAlert("Archivo grande", "Para mantener la velocidad instantánea y no sobrecargar la red P2P, los archivos deben pesar menos de 2MB.");
+    // Nuevo límite: 50MB (o lo que configure el usuario en Supabase)
+    if (file.size > 50 * 1024 * 1024) {
+      showAlert("Archivo grande", "El archivo excede el límite de 50MB.");
       return;
     }
 
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onloadend = () => {
-      sendMessage(undefined, {
-         data: reader.result as string,
-         mimeType: file.type || 'application/octet-stream',
-         name: file.name
-      });
-    };
     setShowAttachments(false);
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `${currentUser.id}/${fileName}`;
+
+    try {
+      const { error } = await supabase.storage.from('chat_attachments').upload(filePath, file);
+      if (error) throw error;
+      
+      const { data: publicUrlData } = supabase.storage.from('chat_attachments').getPublicUrl(filePath);
+      
+      sendMessage(undefined, {
+         url: publicUrlData.publicUrl,
+         mimeType: file.type || 'application/octet-stream',
+         name: file.name,
+         isStorage: true
+      });
+    } catch (err: any) {
+      showAlert("Error", "No se pudo subir el archivo: " + err.message);
+    }
+
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -339,6 +352,30 @@ export default function BlueChatApp() {
         }
       } else {
         setSentRequests([]);
+      }
+
+      // Sincronizar mensajes offline recibidos mientras estábamos desconectados
+      if (userId) {
+        const { data: offlineMsgs } = await supabase.from('offline_messages').select('*').eq('receiver_id', userId);
+        if (offlineMsgs && offlineMsgs.length > 0) {
+          for (const msg of offlineMsgs) {
+            const roomId = getChatRoomId(msg.sender_id, userId);
+            const decryptedMsg = await decryptPayload(msg.payload, roomId);
+            if (decryptedMsg) {
+               let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+               if (!history.find((m:any) => m.id === decryptedMsg.id)) {
+                 history.push(decryptedMsg);
+                 history.sort((a: any, b: any) => a.createdAt - b.createdAt);
+                 await localforage.setItem(`chat_history_${roomId}`, history);
+                 
+                 let unread: any = (await localforage.getItem(`unread_${roomId}`)) || 0;
+                 await localforage.setItem(`unread_${roomId}`, unread + 1);
+               }
+            }
+          }
+          const idsToDelete = offlineMsgs.map(m => m.id);
+          await supabase.from('offline_messages').delete().in('id', idsToDelete);
+        }
       }
 
       // Cargar metadatos para la bandeja de entrada de los usuarios aceptados
@@ -898,6 +935,13 @@ export default function BlueChatApp() {
     if (channelsRef.current[roomId]) {
       const encryptedMsg = await encryptPayload(newMsgObj, roomId);
       channelsRef.current[roomId].send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
+      
+      // Guardar en tabla offline por si el otro usuario no está escuchando
+      await supabase.from('offline_messages').insert({
+        sender_id: currentUser.id,
+        receiver_id: selectedContact.id,
+        payload: encryptedMsg
+      });
     }
 
     if (!onlineUsersRef.current[roomId]) {
@@ -1511,13 +1555,13 @@ export default function BlueChatApp() {
             </div>
           </div>
           <div className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
-            <img src={messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.file.data} className="max-w-full max-h-full object-contain drop-shadow-2xl" />
+            <img src={messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.file.url || messages.filter(m => m.file?.mimeType.startsWith('image/'))[viewingImageIndex]?.file.data} className="max-w-full max-h-full object-contain drop-shadow-2xl" />
           </div>
           <div className="h-28 bg-black/50 p-4 flex items-center justify-center gap-3 overflow-x-auto border-t border-white/10 shrink-0">
             {messages.filter(m => m.file?.mimeType.startsWith('image/')).map((img, idx) => (
               <img 
                 key={img.id} 
-                src={img.file.data} 
+                src={img.file.url || img.file.data} 
                 onClick={() => setViewingImageIndex(idx)}
                 className={`h-full object-cover w-20 cursor-pointer rounded-lg border-2 transition-all shadow-lg ${idx === viewingImageIndex ? 'border-blue-500 scale-110 opacity-100 z-10' : 'border-transparent opacity-50 hover:opacity-100'}`}
               />
@@ -1784,7 +1828,7 @@ export default function BlueChatApp() {
                               <div className="mt-2">
                                 {msg.file.mimeType.startsWith('image/') ? (
                                   <img 
-                                    src={msg.file.data} 
+                                    src={msg.file.url || msg.file.data} 
                                     alt="attachment" 
                                     onClick={() => {
                                       const allImages = messages.filter(m => m.file?.mimeType.startsWith('image/'));
@@ -1795,9 +1839,9 @@ export default function BlueChatApp() {
                                     className="cursor-pointer max-w-[220px] max-h-[300px] object-cover rounded-lg border border-black/10 shadow-sm transition-transform hover:scale-[1.02]" 
                                   />
                                 ) : msg.file.mimeType.startsWith('video/') ? (
-                                  <video controls src={msg.file.data} className="max-w-[220px] rounded-lg border border-black/10 shadow-sm" />
+                                  <video controls src={msg.file.url || msg.file.data} className="max-w-[220px] rounded-lg border border-black/10 shadow-sm" />
                                 ) : (
-                                  <a href={msg.file.data} download={msg.file.name} className="flex items-center gap-2 bg-black/10 p-3 rounded-lg hover:bg-black/20 transition-colors">
+                                  <a href={msg.file.url || msg.file.data} download={msg.file.name} className="flex items-center gap-2 bg-black/10 p-3 rounded-lg hover:bg-black/20 transition-colors">
                                     <File size={24} />
                                     <span className="truncate max-w-[150px]">{msg.file.name}</span>
                                   </a>
