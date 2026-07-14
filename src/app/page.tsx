@@ -1368,8 +1368,8 @@ export default function BlueChatApp() {
       <div className="min-h-[100dvh] w-full overflow-hidden bg-blue-50 flex items-center justify-center p-4 font-sans">
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 border border-blue-100">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
-              <ChatIcon className="w-8 h-8 text-white" />
+            <div className="w-24 h-24 flex items-center justify-center mx-auto mb-2 drop-shadow-sm">
+              <img src="/logo.png" alt="Blue-Chat Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">BlueChat</h1>
             <p className="text-slate-500 text-sm mt-1">Ingresa para chatear de forma segura</p>
@@ -1910,18 +1910,19 @@ export default function BlueChatApp() {
                 </div>
               </header>
 
-              <div 
-                ref={chatContainerRef} 
-                onScroll={handleScroll} 
-                onDrop={handleDrop}
-                onDragOver={(e) => e.preventDefault()}
-                className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-[#f0f4f8] relative"
-              >
-                
-                {messageMenuId && (
-                  <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-all cursor-pointer" onClick={() => setMessageMenuId(null)}></div>
-                )}
-                <div className="absolute inset-0 pointer-events-none opacity-[0.04] z-0 bg-slate-900" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'repeat', maskSize: '150px', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'repeat', WebkitMaskSize: '150px' }}></div>
+              <div className="flex-1 relative overflow-hidden bg-[#f0f4f8]">
+                <div className="absolute inset-0 pointer-events-none opacity-[0.04] z-0 bg-slate-900" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'round', maskSize: '60px', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'round', WebkitMaskSize: '60px' }}></div>
+                <div 
+                  ref={chatContainerRef} 
+                  onScroll={handleScroll} 
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="absolute inset-0 overflow-y-auto p-4 md:p-6 space-y-4 z-10"
+                >
+                  
+                  {messageMenuId && (
+                    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-all cursor-pointer" onClick={() => setMessageMenuId(null)}></div>
+                  )}
                 
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
@@ -2053,8 +2054,9 @@ export default function BlueChatApp() {
                   })
                 )}
               </div>
+            </div>
 
-              {showScrollButton && (
+            {showScrollButton && (
                 <button onClick={() => scrollToBottom(true)} className="absolute bottom-28 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group" aria-label="Ir al último mensaje">
                   <CaretDown size={22} weight="bold" className="group-hover:text-blue-600 transition-colors" />
                   {unreadInChat > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center border-2 border-white shadow-sm animate-bounce">{unreadInChat}</span>}
