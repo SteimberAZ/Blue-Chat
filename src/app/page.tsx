@@ -1373,10 +1373,10 @@ export default function BlueChatApp() {
         
         <div className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-blue-900/5 w-full max-w-md p-8 sm:p-10 border border-white relative z-10">
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight mb-4">BlueChat</h1>
-            <div className="mx-auto flex justify-center drop-shadow-xl mb-6">
+            <div className="mx-auto flex justify-center drop-shadow-xl mb-4">
               <div className="w-32 h-32 transform transition hover:scale-105 bg-gradient-to-tr from-blue-600 to-indigo-600" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
             </div>
+            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight mb-2">BlueChat</h1>
             <p className="text-slate-500 text-sm font-medium">Ingresa para chatear de forma segura</p>
           </div>
           
