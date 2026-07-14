@@ -5,6 +5,22 @@ import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
 import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip } from '@phosphor-icons/react';
 
+const renderMessageText = (text: string, isMine: boolean) => {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className={`underline hover:opacity-80 transition-opacity font-bold ${isMine ? 'text-white' : 'text-blue-600'}`}>
+          {part}
+        </a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+};
+
 export default function BlueChatApp() {
   // Estado de Autenticación y Usuarios
   const [session, setSession] = useState<any>(null);
@@ -1929,8 +1945,8 @@ export default function BlueChatApp() {
                             </div>
                           )}
                           <div className="text-sm font-medium whitespace-pre-wrap break-words">
-                            {msg.content && <p>{msg.content}</p>}
-                            {msg.text && <p>{msg.text}</p>}
+                            {msg.content && <p>{renderMessageText(msg.content, isMine)}</p>}
+                            {msg.text && <p>{renderMessageText(msg.text, isMine)}</p>}
                             {msg.audio && (
                               <audio controls src={msg.audio} className="mt-1 max-w-full h-10 rounded-full" />
                             )}
@@ -2113,8 +2129,14 @@ export default function BlueChatApp() {
               {pendingFile && (
                 <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[100] flex items-center justify-center p-4">
                   <div className="bg-white rounded-2xl p-6 max-w-sm w-full flex flex-col items-center shadow-2xl animate-in zoom-in-95">
-                    <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
-                      <FileText size={40} weight="fill" />
+                    <div className="w-32 h-32 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-4 overflow-hidden border border-slate-100 shadow-sm relative">
+                      {pendingFile.type.startsWith('image/') ? (
+                        <img src={URL.createObjectURL(pendingFile)} alt="preview" className="w-full h-full object-cover" />
+                      ) : pendingFile.type.startsWith('video/') ? (
+                        <video src={URL.createObjectURL(pendingFile)} className="w-full h-full object-cover" />
+                      ) : (
+                        <FileText size={48} weight="fill" />
+                      )}
                     </div>
                     <h3 className="text-lg font-bold text-slate-800 text-center mb-1 w-full truncate px-4">{pendingFile.name}</h3>
                     <p className="text-sm text-slate-500 mb-6">{(pendingFile.size / 1024 / 1024).toFixed(2)} MB</p>
