@@ -2035,7 +2035,7 @@ export default function BlueChatApp() {
               </div>
 
               {showScrollButton && (
-                <button onClick={scrollToBottom} className="absolute bottom-28 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group" aria-label="Ir al último mensaje">
+                <button onClick={() => scrollToBottom(true)} className="absolute bottom-28 right-4 md:right-8 w-10 h-10 bg-white border border-slate-200 text-slate-500 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all z-20 group" aria-label="Ir al último mensaje">
                   <CaretDown size={22} weight="bold" className="group-hover:text-blue-600 transition-colors" />
                   {unreadInChat > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center border-2 border-white shadow-sm animate-bounce">{unreadInChat}</span>}
                 </button>
