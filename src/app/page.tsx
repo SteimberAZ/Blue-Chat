@@ -976,10 +976,23 @@ export default function BlueChatApp() {
     }
   };
 
+  const lastContactId = useRef<string | null>(null);
+
   useEffect(() => {
     if (!chatContainerRef.current || messages.length === 0) return;
-    const isNewMessage = messages.length > prevMessagesLength.current && prevMessagesLength.current > 0;
+
+    const isInitialLoad = lastContactId.current !== selectedContact?.id;
+    
+    if (isInitialLoad) {
+      lastContactId.current = selectedContact?.id || null;
+      prevMessagesLength.current = messages.length;
+      setTimeout(scrollToBottom, 100); 
+      return;
+    }
+
+    const isNewMessage = messages.length > prevMessagesLength.current;
     prevMessagesLength.current = messages.length;
+    
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
     const lastMsg = messages[messages.length - 1];
     const isMine = lastMsg?.senderId === currentUser?.id;
@@ -991,10 +1004,8 @@ export default function BlueChatApp() {
         setUnreadInChat(prev => prev + 1);
         setShowScrollButton(true);
       }
-    } else if (messages.length > 0 && scrollTop === 0) {
-      chatContainerRef.current.scrollTop = scrollHeight;
     }
-  }, [messages, currentUser]);
+  }, [messages, selectedContact, currentUser]);
 
   const sendMessage = async (text?: string, file?: any, audio?: string) => {
     let msgText = text !== undefined ? text : newMessage;
