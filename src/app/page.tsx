@@ -2576,7 +2576,7 @@ export default function BlueChatApp() {
                      <button onClick={() => setReplyingTo(null)} className="p-1 text-slate-400 hover:text-slate-600 bg-slate-200/50 rounded-full"><X size={16}/></button>
                   </div>
                 )}
-                <div className="flex items-center gap-2 md:gap-3 relative z-30">
+                <div className="flex items-end gap-2 md:gap-3 relative z-30">
                   {/* Menú Adjuntos */}
                   <div className="relative">
                     <button onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
@@ -2624,18 +2624,18 @@ export default function BlueChatApp() {
                        <button onClick={cancelRecording} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition-colors" title="Cancelar"><X size={20} weight="bold"/></button>
                     </div>
                   ) : (
-                    <div className="flex-1 bg-slate-100 rounded-full flex items-center px-4 h-12 border border-transparent focus-within:border-blue-300 focus-within:bg-white transition-all shadow-inner">
-                      <input 
-                        type="text" 
+                    <div className="flex min-h-12 flex-1 items-end rounded-2xl border border-transparent bg-slate-100 px-4 py-3 shadow-inner transition-all focus-within:border-blue-300 focus-within:bg-white">
+                      <textarea
+                        rows={1}
                         maxLength={1000}
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                         onPaste={handlePaste}
                         onFocus={() => setIsTyping(true)}
                         onBlur={() => setIsTyping(false)}
-                        placeholder="Escribe un mensaje..." 
-                        className="flex-1 bg-transparent border-none outline-none text-slate-700 text-sm md:text-base placeholder-slate-400"
+                        placeholder="Escribe un mensaje..."
+                        aria-label="Mensaje"
+                        className="max-h-28 min-h-6 flex-1 resize-none overflow-y-auto border-none bg-transparent text-sm leading-6 text-slate-700 outline-none [field-sizing:content] placeholder-slate-400 md:text-base"
                       />
                       {newMessage.length > 800 && (
                          <span className="text-xs text-slate-400 ml-2 font-medium">{newMessage.length}/1000</span>
@@ -2643,24 +2643,33 @@ export default function BlueChatApp() {
                     </div>
                   )}
 
-                  {newMessage.trim() ? (
-                    <button onClick={() => sendMessage()} className="w-10 h-10 md:w-12 md:h-12 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm shrink-0">
-                      <PaperPlaneRight size={20} weight="fill" />
-                    </button>
-                  ) : isRecording ? (
+                  {isRecording ? (
                     <button 
                        onClick={stopRecording}
+                       aria-label="Enviar grabación"
                        className="w-10 h-10 md:w-12 md:h-12 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg shadow-red-200 scale-110 shrink-0 cursor-pointer select-none"
                     >
                       <PaperPlaneRight size={20} weight="fill" />
                     </button>
                   ) : (
-                    <button 
-                       onClick={startRecording}
-                       className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer select-none"
-                    >
-                      <Microphone size={24} weight="bold" />
-                    </button>
+                    <>
+                      <button
+                         onClick={startRecording}
+                         aria-label="Grabar mensaje de voz"
+                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition-all hover:bg-slate-200 active:scale-[0.96] md:h-12 md:w-12"
+                      >
+                        <Microphone size={24} weight="bold" />
+                      </button>
+                      <button
+                        onClick={() => sendMessage()}
+                        disabled={!newMessage.trim()}
+                        aria-label="Enviar mensaje"
+                        title="Enviar mensaje"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700 active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none md:h-12 md:w-12"
+                      >
+                        <PaperPlaneRight size={20} weight="fill" />
+                      </button>
+                    </>
                   )}
                 </div>
               </footer>
