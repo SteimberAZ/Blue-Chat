@@ -1425,19 +1425,19 @@ export default function BlueChatApp() {
   // UI: LOGIN
   if (!session || !currentUser) {
     return (
-      <div className="min-h-[100dvh] w-full overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-50/50 to-white flex items-center justify-center p-4 font-sans relative">
+      <div className="auth-shell min-h-[100dvh] w-full overflow-hidden flex items-center justify-center p-4 font-sans relative">
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
           <div className="absolute -top-20 -left-20 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-0 right-0 w-[30rem] h-[30rem] bg-indigo-400/10 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 right-0 w-[30rem] h-[30rem] bg-blue-300/10 rounded-full blur-3xl"></div>
         </div>
         
-        <div className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-blue-900/5 w-full max-w-md p-8 sm:p-10 border border-white relative z-10">
+        <div className="auth-card w-full max-w-md rounded-2xl p-8 sm:p-10 relative z-10">
           <div className="text-center mb-8">
             <div className="mx-auto flex justify-center drop-shadow-xl mb-4">
-              <div className="w-32 h-32 transform transition hover:scale-105 bg-gradient-to-tr from-blue-600 to-indigo-600" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
+              <div className="w-28 h-28 transform transition hover:scale-[1.03] bg-blue-600" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
             </div>
-            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight mb-2">BlueChat</h1>
-            <p className="text-slate-500 text-sm font-medium">Ingresa para chatear de forma segura</p>
+            <h1 className="text-4xl font-bold text-slate-900 tracking-[-0.04em] mb-2">BlueChat</h1>
+            <p className="text-slate-600 text-sm font-medium">Tus conversaciones, privadas y cerca.</p>
           </div>
           
           <form onSubmit={handleAuth} className="space-y-5">
@@ -1475,7 +1475,7 @@ export default function BlueChatApp() {
             </div>
             {authError && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></div>{authError}</div>}
             {authSuccess && <div className="p-3 bg-emerald-50 text-emerald-600 text-sm rounded-xl border border-emerald-100 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></div>{authSuccess}</div>}
-            <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-2xl hover:opacity-90 transition-all shadow-lg shadow-blue-500/30 disabled:opacity-70 mt-4 active:scale-[0.98]">
+            <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-all shadow-[0_10px_24px_rgba(21,94,239,0.22)] disabled:opacity-70 mt-4 active:scale-[0.98]">
               {isLoading ? 'Procesando...' : (isLoginMode ? 'Iniciar Sesión' : 'Crear Cuenta')}
             </button>
           </form>
@@ -1493,7 +1493,7 @@ export default function BlueChatApp() {
 
   // UI: CHAT
   return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-8 font-sans">
+    <div className="min-h-[100dvh] h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans">
       
       {/* Modal Mi Perfil */}
       {showMyProfile && currentUser && (
@@ -1906,9 +1906,9 @@ export default function BlueChatApp() {
         </div>
       )}
 
-      <div className="w-full max-w-7xl h-full bg-white sm:rounded-[24px] shadow-2xl flex border border-blue-100 overflow-hidden relative">
-        <aside className={`w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 bg-white ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
-          <header className="h-[72px] bg-blue-600 flex items-center justify-between px-4 text-white">
+      <div className="app-frame w-full max-w-[1440px] h-full bg-white sm:rounded-2xl flex border overflow-hidden relative">
+        <aside className={`bluechat-panel w-full md:w-[380px] flex-shrink-0 flex-col border-r border-slate-200 ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
+          <header className="h-[72px] bg-blue-700 flex items-center justify-between px-4 text-white">
             <div onClick={() => { setEditingMyProfileName(currentUser.first_name); setShowMyProfile(true); }} className="flex items-center gap-3 cursor-pointer hover:bg-white/10 p-2 -ml-2 rounded-xl transition-colors truncate min-w-0 max-w-[250px]">
               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-bold text-lg backdrop-blur-sm shadow-inner uppercase flex-shrink-0">
                 {currentUser.first_name?.[0] || 'U'}
@@ -2030,7 +2030,7 @@ export default function BlueChatApp() {
         <main className={`flex-1 flex-col min-w-0 relative ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
           {selectedContact ? (
             <>
-              <header className="h-[72px] bg-white border-b border-slate-200 flex items-center px-4 md:px-6 gap-3 md:gap-4 z-50 shadow-sm shrink-0">
+              <header className="bluechat-toolbar h-[72px] border-b flex items-center px-4 md:px-6 gap-3 md:gap-4 z-50 shrink-0">
                 <button className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)}>&larr;</button>
                 <div 
                   onClick={() => setContactProfile(selectedContact)}
@@ -2228,7 +2228,7 @@ export default function BlueChatApp() {
                 </button>
               )}
 
-              <footer className="bg-white border-t border-slate-200 p-3 md:p-4 z-10 relative">
+              <footer className="bluechat-composer border-t p-3 md:p-4 z-10 relative">
                 {replyingTo && (
                   <div className="flex items-center justify-between bg-slate-50 p-2 md:px-4 md:py-3 border-b border-slate-100 rounded-t-xl mx-2 md:mx-4 -mt-16 absolute left-0 right-0 z-20 shadow-lg">
                      <div className="border-l-4 border-blue-500 pl-3">
@@ -2350,7 +2350,7 @@ export default function BlueChatApp() {
               )}
             </>
           ) : (
-            <div className="flex-1 bg-[#f0f4f8] flex flex-col items-center justify-center p-8 text-center border-l border-white/50 relative z-10">
+            <div className="bluechat-empty flex-1 flex flex-col items-center justify-center p-8 text-center border-l border-white/50 relative z-10">
               <div className="mx-auto flex justify-center drop-shadow-xl mb-8">
                 <div className="w-32 h-32 transform transition hover:scale-105 bg-gradient-to-tr from-slate-300 to-slate-400 opacity-50" style={{ maskImage: 'url(/iso-logo.png)', maskRepeat: 'no-repeat', maskPosition: 'center', maskSize: 'contain', WebkitMaskImage: 'url(/iso-logo.png)', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', WebkitMaskSize: 'contain' }}></div>
               </div>
@@ -2376,13 +2376,5 @@ export default function BlueChatApp() {
         </main>
       </div>
     </div>
-  );
-}
-
-function ChatIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-      <path d="M12 2C6.48 2 2 5.92 2 10.75c0 2.76 1.48 5.22 3.79 6.75-.41 1.76-1.52 3.6-1.58 3.7-.09.15-.05.35.1.46.15.11.35.11.51.02 2.65-1.56 4.39-2.31 5.34-2.52.92.15 1.88.23 2.84.23 5.52 0 10-3.92 10-8.75S17.52 2 12 2zm0 15.5c-.88 0-1.74-.11-2.57-.31-.22-.05-.45-.03-.64.07-1.07.56-2.5 1.25-4.47 2.21.31-.96.79-2.22 1.05-3.32.06-.26-.01-.54-.2-.72C3.33 14.16 2.25 12.54 2.25 10.75 2.25 6.61 6.62 3.25 12 3.25s9.75 3.36 9.75 7.5c0 4.14-4.38 7.5-9.75 7.5z" />
-    </svg>
   );
 }
