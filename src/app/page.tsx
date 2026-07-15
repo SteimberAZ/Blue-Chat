@@ -2630,6 +2630,9 @@ export default function BlueChatApp() {
                         maxLength={1000}
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.stopPropagation();
+                        }}
                         onPaste={handlePaste}
                         onFocus={() => setIsTyping(true)}
                         onBlur={() => setIsTyping(false)}
@@ -2660,15 +2663,16 @@ export default function BlueChatApp() {
                       >
                         <Microphone size={24} weight="bold" />
                       </button>
-                      <button
-                        onClick={() => sendMessage()}
-                        disabled={!newMessage.trim()}
-                        aria-label="Enviar mensaje"
-                        title="Enviar mensaje"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700 active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none md:h-12 md:w-12"
-                      >
-                        <PaperPlaneRight size={20} weight="fill" />
-                      </button>
+                      {newMessage.trim() && (
+                        <button
+                          onClick={() => sendMessage()}
+                          aria-label="Enviar mensaje"
+                          title="Enviar mensaje"
+                          className="bluechat-send-button-enter flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-[0_0.25rem_0.85rem_rgb(37_99_235_/_0.24)] transition-colors hover:bg-blue-700 active:scale-[0.96] md:h-12 md:w-12"
+                        >
+                          <PaperPlaneRight size={20} weight="fill" />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

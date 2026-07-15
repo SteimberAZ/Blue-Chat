@@ -67,10 +67,30 @@
     box-shadow: 0 -10px 34px rgb(60 80 108 / 0.07);
   }
 
+  .bluechat-send-button-enter {
+    animation: bluechat-send-button-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
   .bluechat-empty {
     background:
       radial-gradient(circle at 52% 42%, rgb(21 94 239 / 0.08), transparent 18rem),
       #edf2f7;
+  }
+}
+
+@keyframes bluechat-send-button-enter {
+  from {
+    opacity: 0;
+    transform: translateX(0.5rem) scale(0.78);
+    box-shadow: 0 0 0 rgb(37 99 235 / 0);
+  }
+  65% {
+    box-shadow: 0 0 1.25rem rgb(37 99 235 / 0.42);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    box-shadow: 0 0.25rem 0.85rem rgb(37 99 235 / 0.24);
   }
 }
 
