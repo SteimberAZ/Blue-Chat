@@ -3,7 +3,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
-import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, Image as ImageIcon, VideoCamera, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip, Shield, ChartBar, Database } from '@phosphor-icons/react';
+import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, MicrophoneSlash, Phone, PhoneDisconnect, Image as ImageIcon, VideoCamera, VideoCameraSlash, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip, Shield, ChartBar, Database } from '@phosphor-icons/react';
+
+type CallMode = 'audio' | 'video';
+type CallPhase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'active';
+
+type CallSignal = {
+  kind: 'offer' | 'answer' | 'ice' | 'end' | 'reject';
+  from: string;
+  to: string;
+  mode?: CallMode;
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+};
+
+type CallContact = {
+  id: string;
+  first_name?: string;
+  short_id?: string;
+  email?: string;
+  [key: string]: unknown;
+};
 
 const renderMessageText = (text: string, isMine: boolean) => {
   if (!text) return null;
@@ -123,12 +143,54 @@ export default function BlueChatApp() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
 
+  // Llamadas WebRTC
+  const [callPhase, setCallPhase] = useState<CallPhase>('idle');
+  const [callMode, setCallMode] = useState<CallMode>('audio');
+  const [callContact, setCallContact] = useState<CallContact | null>(null);
+  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
+  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const callContactRef = useRef<CallContact | null>(null);
+  const callPhaseRef = useRef<CallPhase>('idle');
+  const localCallStreamRef = useRef<MediaStream | null>(null);
+  const remoteCallStreamRef = useRef<MediaStream | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
   // Presencia
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   
   // Refs para evitar problemas de stale-closures en los listeners globales
   const selectedContactRef = useRef<any>(null);
   useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
+  useEffect(() => { callContactRef.current = callContact; }, [callContact]);
+  useEffect(() => { callPhaseRef.current = callPhase; }, [callPhase]);
+  useEffect(() => { localCallStreamRef.current = localCallStream; }, [localCallStream]);
+  useEffect(() => { remoteCallStreamRef.current = remoteCallStream; }, [remoteCallStream]);
+
+  useEffect(() => {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localCallStream;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteCallStream;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteCallStream;
+  }, [localCallStream, remoteCallStream, callPhase, isCameraOff]);
+
+  useEffect(() => {
+    if (callPhase !== 'active') return;
+    const timer = window.setInterval(() => setCallSeconds(value => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [callPhase]);
+
+  useEffect(() => () => {
+    peerConnectionRef.current?.close();
+    localCallStreamRef.current?.getTracks().forEach(track => track.stop());
+    remoteCallStreamRef.current?.getTracks().forEach(track => track.stop());
+  }, []);
 
   // Tecla ESC para cerrar chat
   useEffect(() => {
@@ -602,6 +664,175 @@ export default function BlueChatApp() {
     return nicknames[contact.id] || contact.first_name;
   };
 
+  const formatCallTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const remaining = (seconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${remaining}`;
+  };
+
+  const sendCallSignal = async (contact: CallContact, signal: Omit<CallSignal, 'from' | 'to'>) => {
+    if (!currentUser || !contact) return;
+    const roomId = getChatRoomId(currentUser.id, contact.id);
+    const channel = channelsRef.current[roomId];
+    if (!channel) throw new Error('El canal de llamada no está disponible.');
+    const payload: CallSignal = { ...signal, from: currentUser.id, to: contact.id };
+    const encrypted = await encryptPayload(payload, roomId);
+    await channel.send({ type: 'broadcast', event: 'call_signal', payload: { e2ee: true, data: encrypted } });
+  };
+
+  const resetCall = () => {
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    localCallStreamRef.current?.getTracks().forEach(track => track.stop());
+    remoteCallStreamRef.current?.getTracks().forEach(track => track.stop());
+    localCallStreamRef.current = null;
+    remoteCallStreamRef.current = null;
+    setLocalCallStream(null);
+    setRemoteCallStream(null);
+    setCallPhase('idle');
+    setCallContact(null);
+    setCallSeconds(0);
+    setIsCallMuted(false);
+    setIsCameraOff(false);
+    pendingOfferRef.current = null;
+    pendingIceRef.current = [];
+  };
+
+  const endCall = async (notify = true) => {
+    const contact = callContactRef.current;
+    if (notify && contact) {
+      try { await sendCallSignal(contact, { kind: 'end' }); } catch { /* La limpieza local siempre continúa. */ }
+    }
+    resetCall();
+  };
+
+  const createPeerConnection = (contact: CallContact) => {
+    peerConnectionRef.current?.close();
+    const peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    });
+
+    peer.onicecandidate = event => {
+      if (event.candidate) {
+        sendCallSignal(contact, { kind: 'ice', candidate: event.candidate.toJSON() }).catch(() => undefined);
+      }
+    };
+    peer.ontrack = event => {
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      setRemoteCallStream(stream);
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'connected') setCallPhase('active');
+      if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) endCall(false);
+    };
+    peerConnectionRef.current = peer;
+    return peer;
+  };
+
+  const requestCallMedia = async (mode: CallMode) => {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador no permite llamadas multimedia.');
+    return navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: mode === 'video' ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+    });
+  };
+
+  const startCall = async (mode: CallMode) => {
+    if (!selectedContact || callPhaseRef.current !== 'idle') return;
+    try {
+      setCallContact(selectedContact);
+      setCallMode(mode);
+      setCallPhase('connecting');
+      const stream = await requestCallMedia(mode);
+      setLocalCallStream(stream);
+      const peer = createPeerConnection(selectedContact);
+      stream.getTracks().forEach(track => peer.addTrack(track, stream));
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      await sendCallSignal(selectedContact, { kind: 'offer', mode, description: offer });
+      setCallPhase('outgoing');
+    } catch (error) {
+      resetCall();
+      showAlert('No se pudo iniciar la llamada', error instanceof Error ? error.message : 'Revisa los permisos de cámara y micrófono.');
+    }
+  };
+
+  const acceptCall = async () => {
+    const contact = callContactRef.current;
+    const offer = pendingOfferRef.current;
+    if (!contact || !offer) return;
+    try {
+      setCallPhase('connecting');
+      const stream = await requestCallMedia(callMode);
+      setLocalCallStream(stream);
+      const peer = createPeerConnection(contact);
+      stream.getTracks().forEach(track => peer.addTrack(track, stream));
+      await peer.setRemoteDescription(offer);
+      for (const candidate of pendingIceRef.current) await peer.addIceCandidate(candidate);
+      pendingIceRef.current = [];
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await sendCallSignal(contact, { kind: 'answer', description: answer });
+    } catch (error) {
+      await endCall(true);
+      showAlert('No se pudo responder', error instanceof Error ? error.message : 'Revisa los permisos del dispositivo.');
+    }
+  };
+
+  const rejectCall = async () => {
+    const contact = callContactRef.current;
+    if (contact) {
+      try { await sendCallSignal(contact, { kind: 'reject' }); } catch { /* La interfaz se cierra igualmente. */ }
+    }
+    resetCall();
+  };
+
+  const handleCallSignal = async (signal: CallSignal, contact: CallContact) => {
+    if (!currentUser || signal.to !== currentUser.id || signal.from === currentUser.id) return;
+
+    if (signal.kind === 'offer' && signal.description) {
+      if (callPhaseRef.current !== 'idle') {
+        await sendCallSignal(contact, { kind: 'reject' });
+        return;
+      }
+      pendingOfferRef.current = signal.description;
+      setCallContact(contact);
+      setCallMode(signal.mode || 'audio');
+      setCallPhase('incoming');
+      return;
+    }
+
+    if (signal.kind === 'answer' && signal.description && peerConnectionRef.current) {
+      await peerConnectionRef.current.setRemoteDescription(signal.description);
+      setCallPhase('connecting');
+      for (const candidate of pendingIceRef.current) await peerConnectionRef.current.addIceCandidate(candidate);
+      pendingIceRef.current = [];
+      return;
+    }
+
+    if (signal.kind === 'ice' && signal.candidate) {
+      const peer = peerConnectionRef.current;
+      if (peer?.remoteDescription) await peer.addIceCandidate(signal.candidate);
+      else pendingIceRef.current.push(signal.candidate);
+      return;
+    }
+
+    if (signal.kind === 'end' || signal.kind === 'reject') resetCall();
+  };
+
+  const toggleCallMute = () => {
+    localCallStream?.getAudioTracks().forEach(track => { track.enabled = isCallMuted; });
+    setIsCallMuted(value => !value);
+  };
+
+  const toggleCallCamera = () => {
+    localCallStream?.getVideoTracks().forEach(track => { track.enabled = isCameraOff; });
+    setIsCameraOff(value => !value);
+  };
+
   // Escuchar a actualizaciones de la red (Polling fallback + WebSocket)
   useEffect(() => {
     if (!currentUser) return;
@@ -844,6 +1075,16 @@ export default function BlueChatApp() {
           const lastMsg = updated[updated.length - 1];
           setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: lastMsg } }));
         });
+      });
+
+      channel.on('broadcast', { event: 'call_signal' }, async (payloadObj) => {
+        let signal = payloadObj.payload as CallSignal | { e2ee?: boolean; data?: string };
+        if ('e2ee' in signal && signal.e2ee && signal.data) {
+          const decrypted = await decryptPayload(signal.data, roomId);
+          if (!decrypted) return;
+          signal = decrypted as CallSignal;
+        }
+        await handleCallSignal(signal as CallSignal, contact);
       });
 
       channel.on('presence', { event: 'sync' }, () => {
@@ -1291,6 +1532,7 @@ export default function BlueChatApp() {
   };
 
   const handleLogout = async () => {
+    if (callPhaseRef.current !== 'idle') await endCall(true);
     let sess = currentSessionId || localStorage.getItem('bluechat_session_id');
     if (sess) {
        await supabase.from('user_sessions').delete().eq('id', sess);
@@ -1494,6 +1736,81 @@ export default function BlueChatApp() {
   // UI: CHAT
   return (
     <div className="min-h-[100dvh] h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans">
+      {callPhase !== 'idle' && callContact && (
+        <section
+          className="fixed inset-0 z-[300] flex min-h-[100dvh] flex-col overflow-hidden bg-slate-950 text-white"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${callMode === 'video' ? 'Videollamada' : 'Llamada'} con ${getDisplayName(callContact)}`}
+        >
+          {callMode === 'audio' && <audio ref={remoteAudioRef} autoPlay />}
+
+          <div className="absolute inset-0 overflow-hidden">
+            {callMode === 'video' && remoteCallStream ? (
+              <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_38%,#1e3a5f_0%,#0f172a_45%,#020617_100%)]">
+                <div className="flex h-32 w-32 items-center justify-center rounded-full bg-blue-600 text-5xl font-bold shadow-[0_24px_80px_rgba(2,6,23,0.55)] ring-1 ring-white/20 sm:h-40 sm:w-40 sm:text-6xl">
+                  {callContact.first_name?.[0] || 'U'}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <header className="relative z-10 flex items-start justify-between bg-gradient-to-b from-slate-950/85 to-transparent px-5 pb-12 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-8">
+            <div className="min-w-0">
+              <p className="truncate text-xl font-semibold tracking-tight sm:text-2xl">{getDisplayName(callContact)}</p>
+              <p className="mt-1 text-sm font-medium text-slate-300" aria-live="polite">
+                {callPhase === 'incoming' && `Llamada ${callMode === 'video' ? 'de video' : 'de voz'} entrante`}
+                {callPhase === 'outgoing' && 'Llamando...'}
+                {callPhase === 'connecting' && 'Conectando...'}
+                {callPhase === 'active' && formatCallTime(callSeconds)}
+              </p>
+            </div>
+            <div className="rounded-full bg-slate-950/55 px-3 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur-md ring-1 ring-white/10">
+              {callMode === 'video' ? 'Video' : 'Voz'}
+            </div>
+          </header>
+
+          {callMode === 'video' && localCallStream && (
+            <div className="absolute right-4 top-24 z-20 aspect-[3/4] w-28 overflow-hidden rounded-2xl bg-slate-900 shadow-[0_18px_48px_rgba(2,6,23,0.45)] ring-1 ring-white/20 sm:right-8 sm:top-28 sm:w-40">
+              {isCameraOff ? (
+                <div className="flex h-full items-center justify-center text-slate-400"><VideoCameraSlash size={30} /></div>
+              ) : (
+                <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full -scale-x-100 object-cover" />
+              )}
+              <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/65 px-2 py-1 text-[11px] font-medium backdrop-blur-sm">Tú</span>
+            </div>
+          )}
+
+          <div className="relative z-10 mt-auto flex justify-center bg-gradient-to-t from-slate-950 via-slate-950/90 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-20 sm:pb-10">
+            {callPhase === 'incoming' ? (
+              <div className="grid w-full max-w-xs grid-cols-2 gap-5">
+                <button onClick={rejectCall} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 font-semibold text-white transition hover:bg-red-500 active:scale-[0.98]">
+                  <PhoneDisconnect size={22} weight="fill" /> Rechazar
+                </button>
+                <button onClick={acceptCall} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 font-semibold text-white transition hover:bg-blue-500 active:scale-[0.98]">
+                  <Phone size={22} weight="fill" /> Aceptar
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-2xl bg-slate-900/80 p-2.5 shadow-2xl backdrop-blur-xl ring-1 ring-white/10 sm:gap-4 sm:p-3">
+                <button onClick={toggleCallMute} disabled={!localCallStream} className={`flex h-12 w-12 items-center justify-center rounded-xl transition active:scale-[0.96] disabled:opacity-40 sm:h-14 sm:w-14 ${isCallMuted ? 'bg-white text-slate-950' : 'bg-white/10 text-white hover:bg-white/20'}`} aria-label={isCallMuted ? 'Activar micrófono' : 'Silenciar micrófono'}>
+                  {isCallMuted ? <MicrophoneSlash size={22} weight="bold" /> : <Microphone size={22} weight="bold" />}
+                </button>
+                {callMode === 'video' && (
+                  <button onClick={toggleCallCamera} disabled={!localCallStream} className={`flex h-12 w-12 items-center justify-center rounded-xl transition active:scale-[0.96] disabled:opacity-40 sm:h-14 sm:w-14 ${isCameraOff ? 'bg-white text-slate-950' : 'bg-white/10 text-white hover:bg-white/20'}`} aria-label={isCameraOff ? 'Encender cámara' : 'Apagar cámara'}>
+                    {isCameraOff ? <VideoCameraSlash size={23} weight="bold" /> : <VideoCamera size={23} weight="bold" />}
+                  </button>
+                )}
+                <button onClick={() => endCall(true)} className="flex h-12 min-w-20 items-center justify-center rounded-xl bg-red-600 px-6 text-white transition hover:bg-red-500 active:scale-[0.96] sm:h-14" aria-label={callPhase === 'outgoing' ? 'Cancelar llamada' : 'Finalizar llamada'}>
+                  <PhoneDisconnect size={25} weight="fill" />
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
       
       {/* Modal Mi Perfil */}
       {showMyProfile && currentUser && (
@@ -2053,6 +2370,27 @@ export default function BlueChatApp() {
                       </span>
                     )}
                  </div>
+                </div>
+
+                <div className="flex items-center gap-1" aria-label="Acciones de llamada">
+                  <button
+                    onClick={() => startCall('audio')}
+                    disabled={callPhase !== 'idle'}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-50 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`Llamar a ${getDisplayName(selectedContact)}`}
+                    title="Llamada de voz"
+                  >
+                    <Phone size={21} weight="bold" />
+                  </button>
+                  <button
+                    onClick={() => startCall('video')}
+                    disabled={callPhase !== 'idle'}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-blue-700 transition-colors hover:bg-blue-50 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`Videollamar a ${getDisplayName(selectedContact)}`}
+                    title="Videollamada"
+                  >
+                    <VideoCamera size={22} weight="bold" />
+                  </button>
                 </div>
                 
                 <div className="relative">
