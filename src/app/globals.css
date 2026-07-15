@@ -1,25 +1,90 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 @layer base {
   :root {
-    --background: #f3f5f8;
-    --foreground: #111827;
+    color-scheme: light;
+    --background: #eef3f8;
+    --foreground: #172033;
+    --surface-raised: #ffffff;
+    --border: #dce4ee;
+    --focus: #84adff;
   }
+
+  * { scrollbar-color: #b8c5d6 transparent; }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  button, input { font: inherit; }
+  button:not(:disabled) { cursor: pointer; }
+
+  button:focus-visible,
+  input:focus-visible,
+  a:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--focus) 72%, transparent);
+    outline-offset: 2px;
   }
 }
 
-/* Scrollbar styling */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+@layer components {
+  .auth-shell {
+    background:
+      radial-gradient(circle at 14% 12%, rgb(21 94 239 / 0.10), transparent 30rem),
+      linear-gradient(135deg, #edf4ff 0%, #f8fafc 52%, #e8eef6 100%);
+  }
+
+  .auth-card {
+    border: 1px solid rgb(255 255 255 / 0.9);
+    background: rgb(255 255 255 / 0.92);
+    box-shadow: 0 24px 70px rgb(41 62 91 / 0.14);
+  }
+
+  .app-frame {
+    border-color: var(--border);
+    box-shadow: 0 28px 80px rgb(34 55 82 / 0.16);
+  }
+
+  .bluechat-panel { background: rgb(255 255 255 / 0.96); }
+
+  .bluechat-toolbar {
+    border-color: var(--border);
+    background: rgb(255 255 255 / 0.94);
+    backdrop-filter: blur(18px) saturate(130%);
+  }
+
+  .bluechat-composer {
+    border-color: var(--border);
+    background: rgb(255 255 255 / 0.96);
+    box-shadow: 0 -10px 34px rgb(60 80 108 / 0.07);
+  }
+
+  .bluechat-empty {
+    background:
+      radial-gradient(circle at 52% 42%, rgb(21 94 239 / 0.08), transparent 18rem),
+      #edf2f7;
+  }
 }
+
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 4px;
+  background-color: #b8c5d6;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
