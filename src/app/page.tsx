@@ -26,6 +26,16 @@ type CallContact = {
   [key: string]: unknown;
 };
 
+type ChatMessage = {
+  id: string;
+  senderId: string;
+  createdAt: number;
+  status?: string;
+  [key: string]: unknown;
+};
+
+const ARCHIVED_MESSAGE_PAGE_SIZE = 50;
+
 const renderMessageText = (text: string, isMine: boolean) => {
   if (!text) return null;
   const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -129,6 +139,8 @@ export default function BlueChatApp() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const prevMessagesLength = useRef(0);
   const [isTyping, setIsTyping] = useState(false);
   
@@ -216,6 +228,9 @@ export default function BlueChatApp() {
   const onlineUsersRef = useRef<Record<string, boolean>>({}); 
   const globalChannelRef = useRef<any>(null);
   const e2eeKeyCacheRef = useRef<Record<string, CryptoKey>>({});
+  const archivedRoomsLoadedRef = useRef<Set<string>>(new Set());
+  const archiveUnavailableRef = useRef(false);
+  const archiveNextOffsetRef = useRef<Record<string, number>>({});
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
@@ -527,6 +542,11 @@ export default function BlueChatApp() {
       }
 
       // Cargar metadatos para la bandeja de entrada de los usuarios aceptados
+      await Promise.all(acceptedUsers.map(user => {
+        const roomId = getChatRoomId(userId, user.id);
+        return syncArchivedRoom(roomId);
+      }));
+
       const metaObj: Record<string, any> = {};
       for (const user of acceptedUsers) {
         const roomId = getChatRoomId(userId, user.id);
@@ -698,6 +718,66 @@ export default function BlueChatApp() {
     if (!encrypted) throw new Error('No se pudo cifrar la señal de llamada.');
     const response = await channel.send({ type: 'broadcast', event: 'call_signal', payload: { e2ee: true, data: encrypted } });
     if (response !== 'ok') throw new Error('Realtime no confirmó la señal de llamada.');
+  };
+
+  const mergeMessageHistory = (localHistory: ChatMessage[], remoteHistory: ChatMessage[]) => {
+    const byId = new Map<string, ChatMessage>();
+    [...localHistory, ...remoteHistory].forEach(message => {
+      if (message?.id) byId.set(String(message.id), message);
+    });
+    return Array.from(byId.values()).sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+  };
+
+  const syncArchivedRoom = async (roomId: string, force = false, loadOlder = false) => {
+    const localHistory = (await localforage.getItem(`chat_history_${roomId}`) || []) as ChatMessage[];
+    if (archiveUnavailableRef.current || (!force && archivedRoomsLoadedRef.current.has(roomId))) return localHistory;
+    const offset = loadOlder ? (archiveNextOffsetRef.current[roomId] || ARCHIVED_MESSAGE_PAGE_SIZE) : 0;
+
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('encrypted_payload, client_created_at')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + ARCHIVED_MESSAGE_PAGE_SIZE - 1);
+
+    if (error) {
+      if (error.code === '42P01' || error.code === 'PGRST205') archiveUnavailableRef.current = true;
+      console.warn('No se pudo sincronizar el historial cifrado:', error.message);
+      return localHistory;
+    }
+
+    const clearedAt = Number(await localforage.getItem(`chat_cleared_at_${roomId}`) || 0);
+    const activeUserId = currentUser?.id || session?.user?.id;
+    const decrypted = (await Promise.all((data || []).map(async row => {
+      const message = await decryptPayload(row.encrypted_payload, roomId);
+      if (!message || Number(message.createdAt || row.client_created_at) <= clearedAt) return null;
+      return (message.senderId === activeUserId ? { ...message, status: 'delivered' } : message) as ChatMessage;
+    }))).filter((message): message is ChatMessage => Boolean(message));
+
+    const merged = mergeMessageHistory(localHistory, decrypted);
+    await localforage.setItem(`chat_history_${roomId}`, merged);
+    archivedRoomsLoadedRef.current.add(roomId);
+    archiveNextOffsetRef.current[roomId] = offset + (data?.length || 0);
+    if (activeUserId && selectedContactRef.current && getChatRoomId(activeUserId, selectedContactRef.current.id) === roomId) {
+      setHasOlderMessages((data?.length || 0) === ARCHIVED_MESSAGE_PAGE_SIZE);
+    }
+    return merged;
+  };
+
+  const persistArchivedMessage = async (roomId: string, receiverId: string, message: ChatMessage, encryptedPayload: string) => {
+    if (archiveUnavailableRef.current) return;
+    const { error } = await supabase.from('chat_messages').insert({
+      id: String(message.id),
+      room_id: roomId,
+      sender_id: currentUser.id,
+      receiver_id: receiverId,
+      encrypted_payload: encryptedPayload,
+      client_created_at: Number(message.createdAt),
+    });
+    if (error && error.code !== '23505') {
+      if (error.code === '42P01' || error.code === 'PGRST205') archiveUnavailableRef.current = true;
+      console.warn('No se pudo guardar el historial cifrado:', error.message);
+    }
   };
 
   const clearCallTimers = () => {
@@ -1335,6 +1415,8 @@ export default function BlueChatApp() {
     const roomId = getChatRoomId(currentUser.id, contactId);
     await localforage.removeItem(`chat_history_${roomId}`);
     await localforage.removeItem(`unread_${roomId}`);
+    await localforage.setItem(`chat_cleared_at_${roomId}`, Date.now());
+    archivedRoomsLoadedRef.current.add(roomId);
     
     setChatMeta(prev => {
       const updated = { ...prev };
@@ -1352,17 +1434,31 @@ export default function BlueChatApp() {
 
 
   const handleSelectContact = async (contact: any) => {
+    selectedContactRef.current = contact;
     setSelectedContact(contact);
     const roomId = getChatRoomId(currentUser.id, contact.id);
-    const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
+    const localHistory = (await localforage.getItem(`chat_history_${roomId}`) || []) as ChatMessage[];
     
     prevMessagesLength.current = 0; 
-    setMessages(history);
+    setMessages(localHistory);
     setShowScrollButton(false);
     setUnreadInChat(0);
+    setHasOlderMessages(false);
+
+    const syncedHistory = await syncArchivedRoom(roomId, true);
+    if (selectedContactRef.current?.id === contact.id) setMessages(syncedHistory);
     
     await localforage.setItem(`unread_${roomId}`, 0);
     setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], unreadCount: 0 } }));
+  };
+
+  const loadOlderMessages = async () => {
+    if (!selectedContact || !currentUser || isLoadingOlderMessages) return;
+    setIsLoadingOlderMessages(true);
+    const roomId = getChatRoomId(currentUser.id, selectedContact.id);
+    const syncedHistory = await syncArchivedRoom(roomId, true, true);
+    if (selectedContactRef.current?.id === selectedContact.id) setMessages(syncedHistory);
+    setIsLoadingOlderMessages(false);
   };
 
   const handleScroll = () => {
@@ -1420,7 +1516,7 @@ export default function BlueChatApp() {
 
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
     const newMsgObj: any = {
-      id: `m${Date.now()}`,
+      id: window.crypto.randomUUID(),
       senderId: currentUser.id,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       createdAt: Date.now(),
@@ -1454,11 +1550,18 @@ export default function BlueChatApp() {
 
     // Enviar siempre a la base de datos (Store and Forward garantizado)
     const encryptedMsg = await encryptPayload(newMsgObj, roomId);
-    await supabase.from('offline_messages').insert({
-      sender_id: currentUser.id,
-      receiver_id: selectedContact.id,
-      payload: encryptedMsg
-    });
+    if (!encryptedMsg) {
+      showAlert('No se pudo enviar', 'No fue posible cifrar el mensaje.');
+      return;
+    }
+    await Promise.all([
+      persistArchivedMessage(roomId, selectedContact.id, newMsgObj, encryptedMsg),
+      supabase.from('offline_messages').insert({
+        sender_id: currentUser.id,
+        receiver_id: selectedContact.id,
+        payload: encryptedMsg
+      }),
+    ]);
     
     // Broadcast simultáneo para entrega instantánea (latencia cero) si el otro está conectado
     if (channelsRef.current && channelsRef.current[roomId]) {
@@ -1505,8 +1608,14 @@ export default function BlueChatApp() {
 
     if (!selectedContact || !currentUser) return;
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
+    const targetMessage = messages.find(message => message.id === msgId);
     
     if (forEveryone) {
+      if (targetMessage?.senderId !== currentUser.id) {
+        showAlert('No se puede eliminar', 'Solo puedes eliminar para todos los mensajes que enviaste.');
+        return;
+      }
+      await supabase.from('chat_messages').delete().eq('id', String(msgId)).eq('sender_id', currentUser.id);
       const encryptedPayload = await encryptPayload({ messageId: msgId, senderId: currentUser.id }, roomId);
       if (channelsRef.current[roomId]) {
         channelsRef.current[roomId].send({ type: 'broadcast', event: 'delete_message', payload: { e2ee: true, data: encryptedPayload } });
@@ -1533,7 +1642,7 @@ export default function BlueChatApp() {
     const roomId = getChatRoomId(currentUser.id, contact.id);
     const newMsgObj = { 
       ...forwardMessage, 
-      id: `m${Date.now()}`, 
+      id: window.crypto.randomUUID(),
       senderId: currentUser.id, 
       createdAt: Date.now(), 
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
@@ -1544,13 +1653,25 @@ export default function BlueChatApp() {
     const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
     history.push(newMsgObj);
     await localforage.setItem(`chat_history_${roomId}`, history);
-    
+    const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+    if (!encryptedMsg) {
+      showAlert('No se pudo reenviar', 'No fue posible cifrar el mensaje.');
+      return;
+    }
+    await Promise.all([
+      persistArchivedMessage(roomId, contact.id, newMsgObj, encryptedMsg),
+      supabase.from('offline_messages').insert({
+        sender_id: currentUser.id,
+        receiver_id: contact.id,
+        payload: encryptedMsg,
+      }),
+    ]);
+
     const targetChannel = supabase.channel(`chat_${roomId}`);
-        targetChannel.subscribe(async (status) => {
+    targetChannel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-         const encryptedMsg = await encryptPayload(newMsgObj, roomId);
-         targetChannel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
-         setTimeout(() => supabase.removeChannel(targetChannel), 1000);
+        targetChannel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encryptedMsg } });
+        setTimeout(() => supabase.removeChannel(targetChannel), 1000);
       }
     });
     
@@ -2570,7 +2691,19 @@ export default function BlueChatApp() {
                   {messageMenuId && (
                     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40 transition-all cursor-pointer" onClick={() => setMessageMenuId(null)}></div>
                   )}
-                
+
+                  {hasOlderMessages && (
+                    <div className="flex justify-center">
+                      <button
+                        onClick={loadOlderMessages}
+                        disabled={isLoadingOlderMessages}
+                        className="rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-xs font-semibold text-blue-600 shadow-sm transition hover:bg-white disabled:opacity-60"
+                      >
+                        {isLoadingOlderMessages ? 'Cargando mensajes...' : 'Cargar mensajes anteriores'}
+                      </button>
+                    </div>
+                  )}
+
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="bg-white/80 backdrop-blur px-4 py-2 rounded-xl shadow-sm text-sm text-slate-500 font-medium z-10 relative">

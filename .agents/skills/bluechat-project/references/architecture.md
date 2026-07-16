@@ -13,7 +13,8 @@
 
 - Supabase Auth supplies the browser session.
 - `employees`, friend-request/session tables, `offline_messages`, and Storage support application data.
-- Chat history is primarily local via `localforage`; Realtime Broadcast moves encrypted messages and signaling between peers.
+- `chat_messages` is the persistent encrypted archive used for multi-device history. The client loads recent pages into `localforage`, which remains the fast local cache.
+- `offline_messages` remains a temporary delivery queue during the first migration stage; Realtime Broadcast moves encrypted messages and signaling between online peers.
 - Room IDs are deterministic sorted user IDs. Payloads are AES-GCM encrypted with a room-derived key.
 - Per-contact Realtime channels carry chat events, presence, acknowledgements, reactions, deletes, and `call_signal` events.
 
