@@ -3,10 +3,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import localforage from 'localforage';
 import { supabase } from '@/lib/supabase';
+import BlueChatDialog from '@/components/bluechat/BlueChatDialog';
 import { PaperPlaneRight, SignOut, MagnifyingGlass, Checks, Check, LockKey, EnvelopeSimple, User, CaretDown, UserPlus, CheckCircle, X, IdentificationCard, List, Bell, Users, Trash, DotsThreeVertical, Desktop, Plus, Smiley, Microphone, MicrophoneSlash, Phone, PhoneDisconnect, Image as ImageIcon, VideoCamera, VideoCameraSlash, FileText, File, DotsThree, Heart, ShareFat, ArrowUUpLeft, PushPin, Paperclip, Shield, ChartBar, Database } from '@phosphor-icons/react';
 
 type CallMode = 'audio' | 'video';
 type CallPhase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'active';
+type CallStatus = 'completed' | 'rejected' | 'missed' | 'failed' | 'canceled';
+
+type CallLog = {
+  id: string;
+  user_id: string;
+  peer_id: string;
+  call_id: string;
+  call_type: CallMode;
+  status: CallStatus;
+  duration_seconds: number;
+  started_at: string;
+  ended_at: string;
+  created_at: string;
+};
 
 type CallSignal = {
   kind: 'offer' | 'answer' | 'ice' | 'end' | 'reject';
@@ -95,7 +110,8 @@ export default function BlueChatApp() {
 
   // Interfaz Menú
   const [showMenu, setShowMenu] = useState(false);
-  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | 'image_viewer' | 'admin' | null>(null);
+  const [activeModal, setActiveModal] = useState<'pending' | 'sent' | 'profile' | 'contacts' | 'sessions' | 'call_logs' | 'image_viewer' | 'admin' | null>(null);
+  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   
   // Menús de Mensaje y Visor
@@ -182,6 +198,9 @@ export default function BlueChatApp() {
   const callConnectTimerRef = useRef<number | null>(null);
   const offerRetryTimerRef = useRef<number | null>(null);
   const currentCallIdRef = useRef<string | null>(null);
+  const callStartedAtRef = useRef<number | null>(null);
+  const callInitiatorRef = useRef(false);
+  const recordedCallIdsRef = useRef<Set<string>>(new Set());
 
   // Presencia
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -228,6 +247,10 @@ export default function BlueChatApp() {
   const onlineUsersRef = useRef<Record<string, boolean>>({}); 
   const globalChannelRef = useRef<any>(null);
   const e2eeKeyCacheRef = useRef<Record<string, CryptoKey>>({});
+  const v2E2eeKeyCacheRef = useRef<Record<string, CryptoKey>>({});
+  const identityPrivateKeyRef = useRef<CryptoKey | null>(null);
+  const identityPublicKeysRef = useRef<Record<string, JsonWebKey | null>>({});
+  const identityTableUnavailableRef = useRef(false);
   const archivedRoomsLoadedRef = useRef<Set<string>>(new Set());
   const archiveUnavailableRef = useRef(false);
   const archiveNextOffsetRef = useRef<Record<string, number>>({});
@@ -236,7 +259,81 @@ export default function BlueChatApp() {
     return [user1, user2].sort().join('-');
   };
 
-  const getE2EEKey = async (roomId: string) => {
+  const ensureIdentityKey = async (userId: string) => {
+    if (identityPrivateKeyRef.current) return identityPrivateKeyRef.current;
+    try {
+      const privateStorageKey = `bluechat_identity_private_${userId}`;
+      const publicStorageKey = `bluechat_identity_public_${userId}`;
+      let privateJwk = await localforage.getItem<JsonWebKey>(privateStorageKey);
+      let publicJwk = await localforage.getItem<JsonWebKey>(publicStorageKey);
+      if (!privateJwk || !publicJwk) {
+        const pair = await window.crypto.subtle.generateKey(
+          { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']
+        ) as CryptoKeyPair;
+        privateJwk = await window.crypto.subtle.exportKey('jwk', pair.privateKey);
+        publicJwk = await window.crypto.subtle.exportKey('jwk', pair.publicKey);
+        await localforage.setItem(privateStorageKey, privateJwk);
+        await localforage.setItem(publicStorageKey, publicJwk);
+      }
+      identityPrivateKeyRef.current = await window.crypto.subtle.importKey(
+        'jwk', privateJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']
+      );
+      if (!identityTableUnavailableRef.current) {
+        const { error } = await supabase.from('user_identity_keys').upsert({
+          user_id: userId,
+          public_key_jwk: publicJwk,
+          updated_at: new Date().toISOString(),
+        });
+        if (error) {
+          identityTableUnavailableRef.current = error.code === '42P01' || error.code === 'PGRST205';
+          console.warn('No se pudo publicar la identidad criptográfica:', error.message);
+        }
+      }
+      return identityPrivateKeyRef.current;
+    } catch (error) {
+      console.warn('No se pudo inicializar la identidad criptográfica:', error);
+      return null;
+    }
+  };
+
+  const getPeerPublicKey = async (peerId: string) => {
+    if (peerId in identityPublicKeysRef.current) return identityPublicKeysRef.current[peerId];
+    if (identityTableUnavailableRef.current) return null;
+    const { data, error } = await supabase.from('user_identity_keys')
+      .select('public_key_jwk').eq('user_id', peerId).maybeSingle();
+    if (error) {
+      identityTableUnavailableRef.current = error.code === '42P01' || error.code === 'PGRST205';
+      if (!identityTableUnavailableRef.current) console.warn('No se pudo obtener la identidad del contacto:', error.message);
+      identityPublicKeysRef.current[peerId] = null;
+      return null;
+    }
+    identityPublicKeysRef.current[peerId] = data?.public_key_jwk || null;
+    return identityPublicKeysRef.current[peerId];
+  };
+
+  const getE2EEKey = async (roomId: string, peerId?: string, version: 1 | 2 = 1) => {
+    if (version === 2 && peerId && identityPrivateKeyRef.current) {
+      const cacheKey = `${roomId}:${peerId}`;
+      const cachedV2Key = v2E2eeKeyCacheRef.current[cacheKey];
+      if (cachedV2Key) return cachedV2Key;
+      const peerJwk = await getPeerPublicKey(peerId);
+      if (peerJwk) {
+        const peerKey = await window.crypto.subtle.importKey(
+          'jwk', peerJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, []
+        );
+        const sharedBits = await window.crypto.subtle.deriveBits(
+          { name: 'ECDH', public: peerKey }, identityPrivateKeyRef.current, 256
+        );
+        const material = await window.crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
+        const key = await window.crypto.subtle.deriveKey(
+          { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('bluechat_secure_salt_v2'), info: new TextEncoder().encode(roomId) },
+          material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+        v2E2eeKeyCacheRef.current[cacheKey] = key;
+        return key;
+      }
+      return null;
+    }
     const cachedKey = e2eeKeyCacheRef.current[roomId];
     if (cachedKey) return cachedKey;
     const enc = new TextEncoder();
@@ -251,23 +348,27 @@ export default function BlueChatApp() {
     return key;
   };
 
-  const encryptPayload = async (payload: any, roomId: string) => {
+  const encryptPayload = async (payload: any, roomId: string, peerId?: string) => {
     try {
-      const key = await getE2EEKey(roomId);
+      const useV2 = Boolean(peerId && identityPrivateKeyRef.current && await getPeerPublicKey(peerId));
+      const key = await getE2EEKey(roomId, peerId, useV2 ? 2 : 1);
+      if (!key) return null;
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
       const encoded = new TextEncoder().encode(JSON.stringify(payload));
       const encrypted = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encoded);
-      return btoa(JSON.stringify({ iv: Array.from(iv), data: Array.from(new Uint8Array(encrypted)) }));
+      return btoa(JSON.stringify({ v: useV2 ? 2 : 1, iv: Array.from(iv), data: Array.from(new Uint8Array(encrypted)) }));
     } catch (err) {
       console.error("Encryption error", err);
       return null;
     }
   };
 
-  const decryptPayload = async (cipherTextBase64: string, roomId: string) => {
+  const decryptPayload = async (cipherTextBase64: string, roomId: string, peerId?: string) => {
     try {
-      const key = await getE2EEKey(roomId);
-      const { iv, data } = JSON.parse(atob(cipherTextBase64));
+      const envelope = JSON.parse(atob(cipherTextBase64));
+      const { iv, data, v } = envelope;
+      const key = await getE2EEKey(roomId, peerId, v === 2 ? 2 : 1);
+      if (!key) return null;
       const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, new Uint8Array(data));
       return JSON.parse(new TextDecoder().decode(decrypted));
     } catch (err) {
@@ -511,7 +612,7 @@ export default function BlueChatApp() {
         if (offlineMsgs && offlineMsgs.length > 0) {
           for (const msg of offlineMsgs) {
             const roomId = getChatRoomId(msg.sender_id, userId);
-            const decryptedMsg = await decryptPayload(msg.payload, roomId);
+            const decryptedMsg = await decryptPayload(msg.payload, roomId, msg.sender_id);
             if (decryptedMsg) {
                let history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
                if (!history.find((m:any) => m.id === decryptedMsg.id)) {
@@ -530,7 +631,7 @@ export default function BlueChatApp() {
                  }
 
                  if (channelsRef.current && channelsRef.current[roomId]) {
-                    const encryptedAck = await encryptPayload({ messageId: decryptedMsg.id }, roomId);
+                     const encryptedAck = await encryptPayload({ messageId: decryptedMsg.id }, roomId, msg.sender_id);
                     channelsRef.current[roomId].send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
                  }
                }
@@ -544,7 +645,7 @@ export default function BlueChatApp() {
       // Cargar metadatos para la bandeja de entrada de los usuarios aceptados
       await Promise.all(acceptedUsers.map(user => {
         const roomId = getChatRoomId(userId, user.id);
-        return syncArchivedRoom(roomId);
+         return syncArchivedRoom(roomId, false, false, user.id);
       }));
 
       const metaObj: Record<string, any> = {};
@@ -610,6 +711,7 @@ export default function BlueChatApp() {
 
   const fetchUserData = async (user: any) => {
     const userId = user.id;
+    await ensureIdentityKey(userId);
     const { data: myProfile } = await supabase.from('employees').select('*').eq('id', userId).single();
     
     if (myProfile) {
@@ -714,7 +816,7 @@ export default function BlueChatApp() {
       from: currentUser.id,
       to: contact.id,
     };
-    const encrypted = await encryptPayload(payload, roomId);
+    const encrypted = await encryptPayload(payload, roomId, contact.id);
     if (!encrypted) throw new Error('No se pudo cifrar la señal de llamada.');
     const response = await channel.send({ type: 'broadcast', event: 'call_signal', payload: { e2ee: true, data: encrypted } });
     if (response !== 'ok') throw new Error('Realtime no confirmó la señal de llamada.');
@@ -728,7 +830,7 @@ export default function BlueChatApp() {
     return Array.from(byId.values()).sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
   };
 
-  const syncArchivedRoom = async (roomId: string, force = false, loadOlder = false) => {
+  const syncArchivedRoom = async (roomId: string, force = false, loadOlder = false, peerId?: string) => {
     const localHistory = (await localforage.getItem(`chat_history_${roomId}`) || []) as ChatMessage[];
     if (archiveUnavailableRef.current || (!force && archivedRoomsLoadedRef.current.has(roomId))) return localHistory;
     const offset = loadOlder ? (archiveNextOffsetRef.current[roomId] || ARCHIVED_MESSAGE_PAGE_SIZE) : 0;
@@ -749,7 +851,7 @@ export default function BlueChatApp() {
     const clearedAt = Number(await localforage.getItem(`chat_cleared_at_${roomId}`) || 0);
     const activeUserId = currentUser?.id || session?.user?.id;
     const decrypted = (await Promise.all((data || []).map(async row => {
-      const message = await decryptPayload(row.encrypted_payload, roomId);
+      const message = await decryptPayload(row.encrypted_payload, roomId, peerId);
       if (!message || Number(message.createdAt || row.client_created_at) <= clearedAt) return null;
       return (message.senderId === activeUserId ? { ...message, status: 'delivered' } : message) as ChatMessage;
     }))).filter((message): message is ChatMessage => Boolean(message));
@@ -780,6 +882,68 @@ export default function BlueChatApp() {
     }
   };
 
+  const recordCallCompletion = async (status: CallStatus) => {
+    if (!currentUser || !callContactRef.current || !currentCallIdRef.current) return;
+    const contact = callContactRef.current;
+    const callId = currentCallIdRef.current;
+    if (recordedCallIdsRef.current.has(callId)) return;
+    recordedCallIdsRef.current.add(callId);
+    const startedAtMs = callStartedAtRef.current || Date.now();
+    const endedAtMs = Date.now();
+    const durationSeconds = callPhaseRef.current === 'active'
+      ? Math.max(0, Math.round((endedAtMs - startedAtMs) / 1000))
+      : 0;
+    const endedAt = new Date(endedAtMs).toISOString();
+    const { error: logError } = await supabase.from('call_logs').insert({
+      user_id: currentUser.id,
+      peer_id: contact.id,
+      call_id: callId,
+      call_type: callMode,
+      status,
+      duration_seconds: durationSeconds,
+      started_at: new Date(startedAtMs).toISOString(),
+      ended_at: endedAt,
+    });
+    if (logError && logError.code !== '42P01' && logError.code !== 'PGRST205' && logError.code !== '23505') {
+      console.warn('No se pudo guardar el registro de llamada:', logError.message);
+    }
+
+    // Solo el dispositivo que inició la llamada escribe el evento en el chat;
+    // el otro dispositivo lo recibe por Broadcast/offline_messages sin duplicarlo.
+    if (!callInitiatorRef.current) return;
+    const roomId = getChatRoomId(currentUser.id, contact.id);
+    const callLabel = callMode === 'video' ? 'Videollamada' : 'Llamada de voz';
+    const statusLabel: Record<CallStatus, string> = {
+      completed: 'completada', rejected: 'rechazada', missed: 'perdida', failed: 'fallida', canceled: 'cancelada',
+    };
+    const callMessage: ChatMessage = {
+      id: `call-${callId}`,
+      senderId: currentUser.id,
+      createdAt: endedAtMs,
+      timestamp: new Date(endedAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'pending',
+      messageType: 'call_log',
+      callType: callMode,
+      callStatus: status,
+      durationSeconds,
+      content: `${callLabel} ${statusLabel[status]}${durationSeconds > 0 ? ` · ${formatCallTime(durationSeconds)}` : ''}`,
+    };
+    const encrypted = await encryptPayload(callMessage, roomId, contact.id);
+    if (!encrypted) return;
+    await Promise.all([
+      persistArchivedMessage(roomId, contact.id, callMessage, encrypted),
+      supabase.from('offline_messages').insert({ sender_id: currentUser.id, receiver_id: contact.id, payload: encrypted }),
+    ]);
+    let history = (await localforage.getItem(`chat_history_${roomId}`) || []) as ChatMessage[];
+    if (!history.some(message => message.id === callMessage.id)) {
+      history = [...history, callMessage].sort((a, b) => a.createdAt - b.createdAt);
+      await localforage.setItem(`chat_history_${roomId}`, history);
+      if (selectedContactRef.current?.id === contact.id) setMessages(history);
+      setChatMeta(prev => ({ ...prev, [contact.id]: { ...prev[contact.id], lastMessage: callMessage } }));
+    }
+    channelsRef.current[roomId]?.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: encrypted } });
+  };
+
   const clearCallTimers = () => {
     if (disconnectTimerRef.current) window.clearTimeout(disconnectTimerRef.current);
     if (callConnectTimerRef.current) window.clearTimeout(callConnectTimerRef.current);
@@ -789,7 +953,8 @@ export default function BlueChatApp() {
     offerRetryTimerRef.current = null;
   };
 
-  const resetCall = () => {
+  const resetCall = (completionStatus?: CallStatus) => {
+    if (completionStatus) void recordCallCompletion(completionStatus);
     clearCallTimers();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
@@ -812,13 +977,15 @@ export default function BlueChatApp() {
     pendingOfferRef.current = null;
     pendingIceRef.current = [];
     currentCallIdRef.current = null;
+    callStartedAtRef.current = null;
+    callInitiatorRef.current = false;
   };
 
   const startCallConnectionDeadline = () => {
     if (callConnectTimerRef.current) window.clearTimeout(callConnectTimerRef.current);
     callConnectTimerRef.current = window.setTimeout(() => {
       if (callPhaseRef.current !== 'active') {
-        resetCall();
+        resetCall('failed');
         showAlert('No se pudo conectar', 'La red no permitió establecer la llamada. Configura un servidor TURN para conectar dispositivos en redes restringidas.');
       }
     }, 30000);
@@ -829,7 +996,10 @@ export default function BlueChatApp() {
     if (notify && contact) {
       try { await sendCallSignal(contact, { kind: 'end' }); } catch { /* La limpieza local siempre continúa. */ }
     }
-    resetCall();
+    const completionStatus: CallStatus = callPhaseRef.current === 'active'
+      ? 'completed'
+      : (notify ? 'canceled' : 'failed');
+    resetCall(completionStatus);
   };
 
   const createPeerConnection = (contact: CallContact) => {
@@ -895,6 +1065,8 @@ export default function BlueChatApp() {
     if (!selectedContact || callPhaseRef.current !== 'idle') return;
     try {
       currentCallIdRef.current = window.crypto.randomUUID();
+      callStartedAtRef.current = Date.now();
+      callInitiatorRef.current = true;
       setCallContact(selectedContact);
       setCallMode(mode);
       setCallPhase('connecting');
@@ -920,7 +1092,7 @@ export default function BlueChatApp() {
         sendCallSignal(selectedContact, offerSignal).catch(() => undefined);
       }, 2000);
     } catch (error) {
-      resetCall();
+      resetCall('failed');
       showAlert('No se pudo iniciar la llamada', error instanceof Error ? error.message : 'Revisa los permisos de cámara y micrófono.');
     }
   };
@@ -954,7 +1126,7 @@ export default function BlueChatApp() {
     if (contact) {
       try { await sendCallSignal(contact, { kind: 'reject' }); } catch { /* La interfaz se cierra igualmente. */ }
     }
-    resetCall();
+    resetCall('rejected');
   };
 
   const handleCallSignal = async (signal: CallSignal, contact: CallContact) => {
@@ -967,6 +1139,8 @@ export default function BlueChatApp() {
         return;
       }
       currentCallIdRef.current = signal.callId || window.crypto.randomUUID();
+      callStartedAtRef.current = Date.now();
+      callInitiatorRef.current = false;
       pendingOfferRef.current = signal.description;
       setCallContact(contact);
       setCallMode(signal.mode || 'audio');
@@ -993,7 +1167,8 @@ export default function BlueChatApp() {
       return;
     }
 
-    if (signal.kind === 'end' || signal.kind === 'reject') resetCall();
+    if (signal.kind === 'end') resetCall('completed');
+    if (signal.kind === 'reject') resetCall('rejected');
   };
 
   const toggleCallMute = () => {
@@ -1113,14 +1288,14 @@ export default function BlueChatApp() {
           const dbMsg = payload.new as any;
           const roomId = getChatRoomId(dbMsg.sender_id, currentUser.id);
           
-          let incomingMsg = await decryptPayload(dbMsg.payload, roomId);
+           let incomingMsg = await decryptPayload(dbMsg.payload, roomId, dbMsg.sender_id);
           if (!incomingMsg) return;
 
           // Whatsapp-style: Eliminar de la cola inmediatamente (Store and Forward)
           await supabase.from('offline_messages').delete().eq('id', dbMsg.id);
 
           if (channelsRef.current[roomId]) {
-             const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
+              const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId, dbMsg.sender_id);
              channelsRef.current[roomId].send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
           }
 
@@ -1191,11 +1366,11 @@ export default function BlueChatApp() {
       channel.on('broadcast', { event: 'new_message' }, async (payloadObj) => {
         let incomingMsg = payloadObj.payload;
         if (incomingMsg.e2ee) {
-           incomingMsg = await decryptPayload(incomingMsg.data, roomId);
+           incomingMsg = await decryptPayload(incomingMsg.data, roomId, contact.id);
            if (!incomingMsg) return;
         }
         if (incomingMsg.senderId !== currentUser.id) {
-          const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId);
+           const encryptedAck = await encryptPayload({ messageId: incomingMsg.id }, roomId, contact.id);
           channel.send({ type: 'broadcast', event: 'ack', payload: { e2ee: true, data: encryptedAck } });
         }
 
@@ -1299,7 +1474,7 @@ export default function BlueChatApp() {
       channel.on('broadcast', { event: 'call_signal' }, async (payloadObj) => {
         let signal = payloadObj.payload as CallSignal | { e2ee?: boolean; data?: string };
         if ('e2ee' in signal && signal.e2ee && signal.data) {
-          const decrypted = await decryptPayload(signal.data, roomId);
+           const decrypted = await decryptPayload(signal.data, roomId, contact.id);
           if (!decrypted) return;
           signal = decrypted as CallSignal;
         }
@@ -1318,7 +1493,7 @@ export default function BlueChatApp() {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
               pending.forEach(async (pMsg: any) => {
-               const enc = await encryptPayload(pMsg, roomId);
+                const enc = await encryptPayload(pMsg, roomId, contact.id);
                channel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: enc } });
             });
             });
@@ -1334,7 +1509,7 @@ export default function BlueChatApp() {
               if (!history) return;
               const pending = history.filter((m: any) => m.status === 'pending' && m.senderId === currentUser.id);
               pending.forEach(async (pMsg: any) => {
-               const enc = await encryptPayload(pMsg, roomId);
+                const enc = await encryptPayload(pMsg, roomId, contact.id);
                channel.send({ type: 'broadcast', event: 'new_message', payload: { e2ee: true, data: enc } });
             });
             });
@@ -1435,6 +1610,7 @@ export default function BlueChatApp() {
 
   const handleSelectContact = async (contact: any) => {
     selectedContactRef.current = contact;
+    pendingInitialScrollContactRef.current = contact.id;
     setSelectedContact(contact);
     const roomId = getChatRoomId(currentUser.id, contact.id);
     const localHistory = (await localforage.getItem(`chat_history_${roomId}`) || []) as ChatMessage[];
@@ -1445,7 +1621,7 @@ export default function BlueChatApp() {
     setUnreadInChat(0);
     setHasOlderMessages(false);
 
-    const syncedHistory = await syncArchivedRoom(roomId, true);
+    const syncedHistory = await syncArchivedRoom(roomId, true, false, contact.id);
     if (selectedContactRef.current?.id === contact.id) setMessages(syncedHistory);
     
     await localforage.setItem(`unread_${roomId}`, 0);
@@ -1456,7 +1632,7 @@ export default function BlueChatApp() {
     if (!selectedContact || !currentUser || isLoadingOlderMessages) return;
     setIsLoadingOlderMessages(true);
     const roomId = getChatRoomId(currentUser.id, selectedContact.id);
-    const syncedHistory = await syncArchivedRoom(roomId, true, true);
+    const syncedHistory = await syncArchivedRoom(roomId, true, true, selectedContact.id);
     if (selectedContactRef.current?.id === selectedContact.id) setMessages(syncedHistory);
     setIsLoadingOlderMessages(false);
   };
@@ -1478,16 +1654,25 @@ export default function BlueChatApp() {
   };
 
   const lastContactId = useRef<string | null>(null);
+  const pendingInitialScrollContactRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!chatContainerRef.current || messages.length === 0) return;
 
     const isInitialLoad = lastContactId.current !== selectedContact?.id;
+    const shouldJumpToLatest = isInitialLoad || pendingInitialScrollContactRef.current === selectedContact?.id;
     
-    if (isInitialLoad) {
+    if (shouldJumpToLatest) {
       lastContactId.current = selectedContact?.id || null;
+      pendingInitialScrollContactRef.current = null;
       prevMessagesLength.current = messages.length;
-      setTimeout(() => scrollToBottom(false), 10); 
+      requestAnimationFrame(() => {
+        const container = chatContainerRef.current;
+        if (!container) return;
+        container.scrollTop = container.scrollHeight;
+        setShowScrollButton(false);
+        setUnreadInChat(0);
+      });
       return;
     }
 
@@ -1549,7 +1734,7 @@ export default function BlueChatApp() {
     });
 
     // Enviar siempre a la base de datos (Store and Forward garantizado)
-    const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+    const encryptedMsg = await encryptPayload(newMsgObj, roomId, selectedContact.id);
     if (!encryptedMsg) {
       showAlert('No se pudo enviar', 'No fue posible cifrar el mensaje.');
       return;
@@ -1653,7 +1838,7 @@ export default function BlueChatApp() {
     const history: any = await localforage.getItem(`chat_history_${roomId}`) || [];
     history.push(newMsgObj);
     await localforage.setItem(`chat_history_${roomId}`, history);
-    const encryptedMsg = await encryptPayload(newMsgObj, roomId);
+    const encryptedMsg = await encryptPayload(newMsgObj, roomId, contact.id);
     if (!encryptedMsg) {
       showAlert('No se pudo reenviar', 'No fue posible cifrar el mensaje.');
       return;
@@ -1785,6 +1970,18 @@ export default function BlueChatApp() {
      if (data) setActiveSessions(data);
   };
 
+  const fetchCallLogs = async () => {
+    if (!currentUser) return;
+    const { data, error } = await supabase.from('call_logs')
+      .select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(100);
+    if (error) {
+      if (error.code !== '42P01' && error.code !== 'PGRST205') console.warn('No se pudo cargar el historial de llamadas:', error.message);
+      setCallLogs([]);
+      return;
+    }
+    setCallLogs((data || []) as CallLog[]);
+  };
+
   const killSession = async (sessionId: string) => {
      if (!(await showConfirm("Cerrar Sesión", "¿Seguro que deseas cerrar esa sesión remotamente?"))) return;
      await supabase.from('user_sessions').delete().eq('id', sessionId);
@@ -1863,7 +2060,7 @@ export default function BlueChatApp() {
                 <p className="text-blue-600 font-bold">{transferStatusMsg}</p>
              </div>
            )}
-           <button onClick={() => { setLoginStep('none'); }} className="mt-6 text-sm text-slate-400 hover:text-slate-600 underline">Cancelar y Volver</button>
+            <button type="button" onClick={() => { setLoginStep('none'); }} className="mt-6 text-sm text-slate-400 hover:text-slate-600 underline">Cancelar y Volver</button>
         </div>
       </div>
     );
@@ -1995,10 +2192,10 @@ export default function BlueChatApp() {
 
   // UI: CHAT
   return (
-    <div className="min-h-[100dvh] h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans">
+    <div className="bluechat-app-reveal min-h-[100dvh] h-[100dvh] w-full overflow-hidden bg-slate-100 flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans">
       {callPhase !== 'idle' && callContact && (
         <section
-          className="fixed inset-0 z-[300] flex min-h-[100dvh] flex-col overflow-hidden bg-slate-950 text-white"
+          className="bluechat-call-surface fixed inset-0 z-[300] flex min-h-[100dvh] flex-col overflow-hidden bg-slate-950 text-white"
           role="dialog"
           aria-modal="true"
           aria-label={`${callMode === 'video' ? 'Videollamada' : 'Llamada'} con ${getDisplayName(callContact)}`}
@@ -2302,6 +2499,36 @@ export default function BlueChatApp() {
         </div>
       )}
 
+      {activeModal === 'call_logs' && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setActiveModal(null)}>
+          <div className="relative flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-white p-6 shadow-xl" onClick={event => event.stopPropagation()}>
+            <button type="button" onClick={() => setActiveModal(null)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600" aria-label="Cerrar historial de llamadas"><X size={24} /></button>
+            <h2 className="mb-5 flex items-center gap-2 text-xl font-bold text-slate-800"><Phone className="text-emerald-500" weight="fill" /> Historial de llamadas</h2>
+            <div className="scrollbar-thin flex-1 space-y-2 overflow-y-auto">
+              {callLogs.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">Aún no tienes llamadas registradas.</div>
+              ) : callLogs.map(log => {
+                const peer = contacts.find(contact => contact.id === log.peer_id);
+                const isVideo = log.call_type === 'video';
+                const statusLabel: Record<CallStatus, string> = { completed: 'Completada', rejected: 'Rechazada', missed: 'Perdida', failed: 'Fallida', canceled: 'Cancelada' };
+                return (
+                  <div key={log.id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isVideo ? 'bg-purple-100 text-purple-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                      {isVideo ? <VideoCamera size={20} weight="fill" /> : <Phone size={20} weight="fill" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-800">{peer ? getDisplayName(peer) : 'Contacto'}</p>
+                      <p className="text-xs text-slate-500">{statusLabel[log.status]}{log.duration_seconds > 0 ? ` · ${formatCallTime(log.duration_seconds)}` : ''}</p>
+                    </div>
+                    <time className="shrink-0 text-[11px] text-slate-400" dateTime={log.created_at}>{new Date(log.created_at).toLocaleDateString()}</time>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Modo Admin */}
       {activeModal === 'admin' && currentUser?.email === 'randyarteaga1519@gmail.com' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex flex-col md:items-center md:justify-center transition-all animate-in fade-in">
@@ -2529,6 +2756,9 @@ export default function BlueChatApp() {
                 <button onClick={() => { setShowMenu(false); fetchActiveSessions(); setActiveModal('sessions'); }} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-slate-700 transition-colors border-t border-slate-100">
                   <Desktop size={18} className="text-blue-500" /> Sesiones Abiertas
                 </button>
+                <button onClick={() => { setShowMenu(false); fetchCallLogs(); setActiveModal('call_logs'); }} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-slate-700 transition-colors">
+                  <Phone size={18} className="text-emerald-500" weight="fill" /> Historial de llamadas
+                </button>
                 {currentUser?.email === 'randyarteaga1519@gmail.com' && (
                   <button onClick={() => { setShowMenu(false); setActiveModal('admin'); fetchAdminData(); }} className="w-full text-left px-4 py-3 hover:bg-red-50 flex items-center gap-3 text-red-700 font-bold transition-colors border-t border-slate-100">
                     <Shield size={18} weight="fill" className="text-red-600" /> Modo Admin
@@ -2567,12 +2797,12 @@ export default function BlueChatApp() {
                 const unreadCount = meta?.unreadCount || 0;
                 
                 return (
-                  <div key={contact.id} onClick={() => handleSelectContact(contact)} className={`flex items-center gap-4 p-4 cursor-pointer transition-colors border-b border-slate-50 ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                  <div key={contact.id} onClick={() => handleSelectContact(contact)} className={`bluechat-contact-row flex items-center gap-4 p-4 cursor-pointer border-b border-slate-50 ${selectedContact?.id === contact.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                     <div 
                       onClick={(e) => { e.stopPropagation(); setContactProfile(contact); }}
                       className="relative w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm uppercase hover:ring-4 hover:ring-blue-200 transition-all"
                     >
-                      <div className="w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold">
+                      <div className={`w-12 h-12 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold ${onlineUsers.has(contact.id) ? 'bluechat-avatar-presence' : ''}`}>
                         {contact.first_name?.[0] || 'U'}
                       </div>
                       {onlineUsers.has(contact.id) && (
@@ -2613,7 +2843,7 @@ export default function BlueChatApp() {
           {selectedContact ? (
             <>
               <header className="bluechat-toolbar h-[72px] border-b flex items-center px-4 md:px-6 gap-3 md:gap-4 z-50 shrink-0">
-                <button className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)}>&larr;</button>
+                <button type="button" className="md:hidden p-2 -ml-2 text-blue-600 hover:bg-blue-50 rounded-full" onClick={() => setSelectedContact(null)} aria-label="Volver a la lista de chats">&larr;</button>
                 <div 
                   onClick={() => setContactProfile(selectedContact)}
                   className="w-10 h-10 bg-gradient-to-tr from-blue-400 to-blue-600 text-white rounded-full flex items-center justify-center font-bold text-lg shadow-sm uppercase cursor-pointer hover:ring-4 hover:ring-blue-200 transition-all flex-shrink-0"
@@ -2659,7 +2889,7 @@ export default function BlueChatApp() {
                 </div>
                 
                 <div className="relative">
-                  <button onClick={() => setShowChatOptions(!showChatOptions)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors shrink-0">
+                   <button type="button" onClick={() => setShowChatOptions(!showChatOptions)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors shrink-0" aria-label="Abrir opciones del chat" aria-expanded={showChatOptions}>
                     <DotsThreeVertical size={24} weight="bold" />
                   </button>
                   {showChatOptions && (
@@ -2714,7 +2944,7 @@ export default function BlueChatApp() {
                   messages.map(msg => {
                     const isMine = msg.senderId === currentUser.id;
                     return (
-                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} relative group items-center ${messageMenuId === msg.id ? 'z-50' : 'z-10'} ${msg.reaction ? 'mb-5' : ''}`}>
+                      <div key={msg.id} className={`bluechat-message-${isMine ? 'out' : 'in'} flex ${isMine ? 'justify-end' : 'justify-start'} relative group items-center ${messageMenuId === msg.id ? 'z-50' : 'z-10'} ${msg.reaction ? 'mb-5' : ''}`}>
                         {isMine && (
                           <div className={`opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity relative mr-2`}>
                              <button onClick={() => setMessageMenuId(msg.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-black/5 rounded-full transition-colors">
@@ -2755,9 +2985,23 @@ export default function BlueChatApp() {
                                <p className="truncate opacity-80">{msg.replyTo.text || msg.replyTo.content || 'Archivo multimedia'}</p>
                             </div>
                           )}
-                          <div className="text-sm font-medium whitespace-pre-wrap break-words">
-                            {msg.content && <p>{renderMessageText(msg.content, isMine)}</p>}
-                            {msg.text && <p>{renderMessageText(msg.text, isMine)}</p>}
+                           <div className="text-sm font-medium whitespace-pre-wrap break-words">
+                             {msg.messageType === 'call_log' ? (
+                               <div className="flex min-w-[170px] items-center gap-3 py-1">
+                                 <div className={`flex h-9 w-9 items-center justify-center rounded-full ${msg.callType === 'video' ? 'bg-white/20' : 'bg-black/10'}`}>
+                                   {msg.callType === 'video' ? <VideoCamera size={19} weight="fill" /> : <Phone size={19} weight="fill" />}
+                                 </div>
+                                 <div>
+                                   <p className="font-semibold">{msg.callType === 'video' ? 'Videollamada' : 'Llamada de voz'}</p>
+                                   <p className="text-xs opacity-75">{String(msg.content || '')}</p>
+                                 </div>
+                               </div>
+                             ) : (
+                               <>
+                                 {msg.content && <p>{renderMessageText(msg.content, isMine)}</p>}
+                                 {msg.text && <p>{renderMessageText(msg.text, isMine)}</p>}
+                               </>
+                             )}
                             {msg.audio && (
                               <audio controls src={msg.audio} className="mt-1 max-w-full h-10 rounded-full" />
                             )}
@@ -2856,7 +3100,7 @@ export default function BlueChatApp() {
                 <div className="flex items-end gap-2 md:gap-3 relative z-30">
                   {/* Menú Adjuntos */}
                   <div className="relative">
-                    <button onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
+                     <button type="button" onClick={() => { setShowAttachments(!showAttachments); setShowEmojis(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0" aria-label="Adjuntar archivo" aria-expanded={showAttachments}>
                       <Paperclip size={24} weight="bold"/>
                     </button>
                     {showAttachments && (
@@ -2876,7 +3120,7 @@ export default function BlueChatApp() {
 
                   {/* Menú Emojis */}
                   <div className="relative">
-                     <button onClick={() => { setShowEmojis(!showEmojis); setShowAttachments(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0">
+                      <button type="button" onClick={() => { setShowEmojis(!showEmojis); setShowAttachments(false); }} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0" aria-label="Abrir selector de emojis" aria-expanded={showEmojis}>
                        <Smiley size={24} weight="bold"/>
                      </button>
                      {showEmojis && (
@@ -2988,18 +3232,15 @@ export default function BlueChatApp() {
           )}
 
           {customModal.isOpen && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 sm:p-8 animate-in zoom-in-95 relative flex flex-col items-center text-center">
-                <h3 className="text-xl font-bold text-slate-800 mb-2">{customModal.title}</h3>
-                <p className="text-slate-600 mb-8">{customModal.message}</p>
-                <div className="flex w-full gap-3">
-                  {customModal.type === 'confirm' && (
-                    <button onClick={() => { setCustomModal({ isOpen: false }); customModal.onCancel?.(); }} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancelar</button>
-                  )}
-                  <button onClick={() => { setCustomModal({ isOpen: false }); customModal.onConfirm?.(); }} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md">Aceptar</button>
-                </div>
+            <BlueChatDialog title={customModal.title} onClose={() => setCustomModal({ isOpen: false })} className="max-w-sm text-center">
+              <p className="mb-8 text-slate-600">{customModal.message}</p>
+              <div className="flex w-full gap-3">
+                {customModal.type === 'confirm' && (
+                  <button type="button" onClick={() => { setCustomModal({ isOpen: false }); customModal.onCancel?.(); }} className="flex-1 rounded-xl bg-slate-100 py-3 font-bold text-slate-700 transition-colors hover:bg-slate-200">Cancelar</button>
+                )}
+                <button type="button" onClick={() => { setCustomModal({ isOpen: false }); customModal.onConfirm?.(); }} className="flex-1 rounded-xl bg-blue-600 py-3 font-bold text-white shadow-md transition-colors hover:bg-blue-700">Aceptar</button>
               </div>
-            </div>
+            </BlueChatDialog>
           )}
         </main>
       </div>
