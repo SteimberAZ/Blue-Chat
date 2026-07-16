@@ -1,0 +1,4 @@
+interface:
+  display_name: "BlueChat Project"
+  short_description: "Develop and maintain BlueChat safely"
+  default_prompt: "Use $bluechat-project to understand BlueChat, implement the requested change, and verify it."

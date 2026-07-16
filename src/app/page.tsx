@@ -12,6 +12,7 @@ type CallSignal = {
   kind: 'offer' | 'answer' | 'ice' | 'end' | 'reject';
   from: string;
   to: string;
+  callId?: string;
   mode?: CallMode;
   description?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -151,6 +152,7 @@ export default function BlueChatApp() {
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
   const [isCallMuted, setIsCallMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
@@ -162,6 +164,12 @@ export default function BlueChatApp() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const disconnectTimerRef = useRef<number | null>(null);
+  const callConnectTimerRef = useRef<number | null>(null);
+  const offerRetryTimerRef = useRef<number | null>(null);
+  const currentCallIdRef = useRef<string | null>(null);
 
   // Presencia
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -207,20 +215,25 @@ export default function BlueChatApp() {
   const roomWritePromises = useRef<Record<string, Promise<void>>>({}); 
   const onlineUsersRef = useRef<Record<string, boolean>>({}); 
   const globalChannelRef = useRef<any>(null);
+  const e2eeKeyCacheRef = useRef<Record<string, CryptoKey>>({});
 
   const getChatRoomId = (user1: string, user2: string) => {
     return [user1, user2].sort().join('-');
   };
 
   const getE2EEKey = async (roomId: string) => {
+    const cachedKey = e2eeKeyCacheRef.current[roomId];
+    if (cachedKey) return cachedKey;
     const enc = new TextEncoder();
     const keyMaterial = await window.crypto.subtle.importKey(
       "raw", enc.encode(roomId), { name: "PBKDF2" }, false, ["deriveBits", "deriveKey"]
     );
-    return window.crypto.subtle.deriveKey(
+    const key = await window.crypto.subtle.deriveKey(
       { name: "PBKDF2", salt: enc.encode("bluechat_secure_salt_v1"), iterations: 100000, hash: "SHA-256" },
       keyMaterial, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
     );
+    e2eeKeyCacheRef.current[roomId] = key;
+    return key;
   };
 
   const encryptPayload = async (payload: any, roomId: string) => {
@@ -675,16 +688,37 @@ export default function BlueChatApp() {
     const roomId = getChatRoomId(currentUser.id, contact.id);
     const channel = channelsRef.current[roomId];
     if (!channel) throw new Error('El canal de llamada no está disponible.');
-    const payload: CallSignal = { ...signal, from: currentUser.id, to: contact.id };
+    const payload: CallSignal = {
+      ...signal,
+      callId: signal.callId || currentCallIdRef.current || undefined,
+      from: currentUser.id,
+      to: contact.id,
+    };
     const encrypted = await encryptPayload(payload, roomId);
-    await channel.send({ type: 'broadcast', event: 'call_signal', payload: { e2ee: true, data: encrypted } });
+    if (!encrypted) throw new Error('No se pudo cifrar la señal de llamada.');
+    const response = await channel.send({ type: 'broadcast', event: 'call_signal', payload: { e2ee: true, data: encrypted } });
+    if (response !== 'ok') throw new Error('Realtime no confirmó la señal de llamada.');
+  };
+
+  const clearCallTimers = () => {
+    if (disconnectTimerRef.current) window.clearTimeout(disconnectTimerRef.current);
+    if (callConnectTimerRef.current) window.clearTimeout(callConnectTimerRef.current);
+    if (offerRetryTimerRef.current) window.clearInterval(offerRetryTimerRef.current);
+    disconnectTimerRef.current = null;
+    callConnectTimerRef.current = null;
+    offerRetryTimerRef.current = null;
   };
 
   const resetCall = () => {
+    clearCallTimers();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
     localCallStreamRef.current?.getTracks().forEach(track => track.stop());
     remoteCallStreamRef.current?.getTracks().forEach(track => track.stop());
+    cameraTrackRef.current?.stop();
+    screenTrackRef.current?.stop();
+    cameraTrackRef.current = null;
+    screenTrackRef.current = null;
     localCallStreamRef.current = null;
     remoteCallStreamRef.current = null;
     setLocalCallStream(null);
@@ -694,8 +728,20 @@ export default function BlueChatApp() {
     setCallSeconds(0);
     setIsCallMuted(false);
     setIsCameraOff(false);
+    setIsScreenSharing(false);
     pendingOfferRef.current = null;
     pendingIceRef.current = [];
+    currentCallIdRef.current = null;
+  };
+
+  const startCallConnectionDeadline = () => {
+    if (callConnectTimerRef.current) window.clearTimeout(callConnectTimerRef.current);
+    callConnectTimerRef.current = window.setTimeout(() => {
+      if (callPhaseRef.current !== 'active') {
+        resetCall();
+        showAlert('No se pudo conectar', 'La red no permitió establecer la llamada. Configura un servidor TURN para conectar dispositivos en redes restringidas.');
+      }
+    }, 30000);
   };
 
   const endCall = async (notify = true) => {
@@ -708,11 +754,20 @@ export default function BlueChatApp() {
 
   const createPeerConnection = (contact: CallContact) => {
     peerConnectionRef.current?.close();
+    const turnUrl = process.env.NEXT_PUBLIC_WEBRTC_TURN_URL;
+    const iceServers: RTCIceServer[] = [
+      { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    ];
+    if (turnUrl) {
+      iceServers.push({
+        urls: turnUrl.split(',').map(url => url.trim()).filter(Boolean),
+        username: process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME,
+        credential: process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL,
+      });
+    }
     const peer = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
+      iceServers,
+      iceCandidatePoolSize: 10,
     });
 
     peer.onicecandidate = event => {
@@ -725,8 +780,24 @@ export default function BlueChatApp() {
       setRemoteCallStream(stream);
     };
     peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'connected') setCallPhase('active');
-      if (['failed', 'closed', 'disconnected'].includes(peer.connectionState)) endCall(false);
+      if (peer.connectionState === 'connected') {
+        if (callConnectTimerRef.current) window.clearTimeout(callConnectTimerRef.current);
+        if (offerRetryTimerRef.current) window.clearInterval(offerRetryTimerRef.current);
+        callConnectTimerRef.current = null;
+        offerRetryTimerRef.current = null;
+        setCallPhase('active');
+      }
+      if (peer.connectionState === 'connected' && disconnectTimerRef.current) {
+        window.clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      if (peer.connectionState === 'disconnected' && !disconnectTimerRef.current) {
+        disconnectTimerRef.current = window.setTimeout(() => {
+          if (peer.connectionState === 'disconnected') endCall(false);
+          disconnectTimerRef.current = null;
+        }, 5000);
+      }
+      if (['failed', 'closed'].includes(peer.connectionState)) endCall(false);
     };
     peerConnectionRef.current = peer;
     return peer;
@@ -743,17 +814,31 @@ export default function BlueChatApp() {
   const startCall = async (mode: CallMode) => {
     if (!selectedContact || callPhaseRef.current !== 'idle') return;
     try {
+      currentCallIdRef.current = window.crypto.randomUUID();
       setCallContact(selectedContact);
       setCallMode(mode);
       setCallPhase('connecting');
       const stream = await requestCallMedia(mode);
+      cameraTrackRef.current = stream.getVideoTracks()[0] || null;
       setLocalCallStream(stream);
       const peer = createPeerConnection(selectedContact);
       stream.getTracks().forEach(track => peer.addTrack(track, stream));
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      await sendCallSignal(selectedContact, { kind: 'offer', mode, description: offer });
+      const offerSignal = { kind: 'offer' as const, mode, description: offer, callId: currentCallIdRef.current };
+      await sendCallSignal(selectedContact, offerSignal);
       setCallPhase('outgoing');
+      startCallConnectionDeadline();
+      let retryCount = 0;
+      offerRetryTimerRef.current = window.setInterval(() => {
+        if (peer.remoteDescription || retryCount >= 3) {
+          if (offerRetryTimerRef.current) window.clearInterval(offerRetryTimerRef.current);
+          offerRetryTimerRef.current = null;
+          return;
+        }
+        retryCount += 1;
+        sendCallSignal(selectedContact, offerSignal).catch(() => undefined);
+      }, 2000);
     } catch (error) {
       resetCall();
       showAlert('No se pudo iniciar la llamada', error instanceof Error ? error.message : 'Revisa los permisos de cámara y micrófono.');
@@ -766,7 +851,9 @@ export default function BlueChatApp() {
     if (!contact || !offer) return;
     try {
       setCallPhase('connecting');
+      startCallConnectionDeadline();
       const stream = await requestCallMedia(callMode);
+      cameraTrackRef.current = stream.getVideoTracks()[0] || null;
       setLocalCallStream(stream);
       const peer = createPeerConnection(contact);
       stream.getTracks().forEach(track => peer.addTrack(track, stream));
@@ -775,7 +862,7 @@ export default function BlueChatApp() {
       pendingIceRef.current = [];
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
-      await sendCallSignal(contact, { kind: 'answer', description: answer });
+      await sendCallSignal(contact, { kind: 'answer', description: answer, callId: currentCallIdRef.current || undefined });
     } catch (error) {
       await endCall(true);
       showAlert('No se pudo responder', error instanceof Error ? error.message : 'Revisa los permisos del dispositivo.');
@@ -794,10 +881,12 @@ export default function BlueChatApp() {
     if (!currentUser || signal.to !== currentUser.id || signal.from === currentUser.id) return;
 
     if (signal.kind === 'offer' && signal.description) {
+      if (callPhaseRef.current !== 'idle' && signal.callId && signal.callId === currentCallIdRef.current) return;
       if (callPhaseRef.current !== 'idle') {
-        await sendCallSignal(contact, { kind: 'reject' });
+        await sendCallSignal(contact, { kind: 'reject', callId: signal.callId });
         return;
       }
+      currentCallIdRef.current = signal.callId || window.crypto.randomUUID();
       pendingOfferRef.current = signal.description;
       setCallContact(contact);
       setCallMode(signal.mode || 'audio');
@@ -806,6 +895,9 @@ export default function BlueChatApp() {
     }
 
     if (signal.kind === 'answer' && signal.description && peerConnectionRef.current) {
+      if (signal.callId && signal.callId !== currentCallIdRef.current) return;
+      if (offerRetryTimerRef.current) window.clearInterval(offerRetryTimerRef.current);
+      offerRetryTimerRef.current = null;
       await peerConnectionRef.current.setRemoteDescription(signal.description);
       setCallPhase('connecting');
       for (const candidate of pendingIceRef.current) await peerConnectionRef.current.addIceCandidate(candidate);
@@ -814,6 +906,7 @@ export default function BlueChatApp() {
     }
 
     if (signal.kind === 'ice' && signal.candidate) {
+      if (signal.callId && currentCallIdRef.current && signal.callId !== currentCallIdRef.current) return;
       const peer = peerConnectionRef.current;
       if (peer?.remoteDescription) await peer.addIceCandidate(signal.candidate);
       else pendingIceRef.current.push(signal.candidate);
@@ -829,8 +922,51 @@ export default function BlueChatApp() {
   };
 
   const toggleCallCamera = () => {
-    localCallStream?.getVideoTracks().forEach(track => { track.enabled = isCameraOff; });
+    cameraTrackRef.current && (cameraTrackRef.current.enabled = isCameraOff);
     setIsCameraOff(value => !value);
+  };
+
+  const stopScreenShare = async () => {
+    const peer = peerConnectionRef.current;
+    const cameraTrack = cameraTrackRef.current;
+    const sender = peer?.getSenders().find(item => item.track?.kind === 'video');
+    if (sender && cameraTrack) await sender.replaceTrack(cameraTrack);
+    screenTrackRef.current?.stop();
+    screenTrackRef.current = null;
+    const audioTracks = localCallStreamRef.current?.getAudioTracks() || [];
+    const restoredStream = new MediaStream([...audioTracks, ...(cameraTrack ? [cameraTrack] : [])]);
+    localCallStreamRef.current = restoredStream;
+    setLocalCallStream(restoredStream);
+    setIsScreenSharing(false);
+  };
+
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      await stopScreenShare();
+      return;
+    }
+    const peer = peerConnectionRef.current;
+    const sender = peer?.getSenders().find(item => item.track?.kind === 'video');
+    if (!navigator.mediaDevices?.getDisplayMedia || !sender) {
+      showAlert('No se puede compartir', 'Esta llamada o navegador no permite compartir pantalla.');
+      return;
+    }
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const displayTrack = displayStream.getVideoTracks()[0];
+      if (!displayTrack) return;
+      await sender.replaceTrack(displayTrack);
+      screenTrackRef.current = displayTrack;
+      const audioTracks = localCallStreamRef.current?.getAudioTracks() || [];
+      const sharedStream = new MediaStream([...audioTracks, displayTrack]);
+      localCallStreamRef.current = sharedStream;
+      setLocalCallStream(sharedStream);
+      setIsScreenSharing(true);
+      displayTrack.onended = () => { stopScreenShare().catch(() => undefined); };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return;
+      showAlert('No se pudo compartir', error instanceof Error ? error.message : 'Revisa los permisos del navegador.');
+    }
   };
 
   // Escuchar a actualizaciones de la red (Polling fallback + WebSocket)
@@ -966,7 +1102,10 @@ export default function BlueChatApp() {
       if (channelsRef.current[roomId]) return;
 
       const channel = supabase.channel(`chat-${roomId}`, {
-        config: { presence: { key: currentUser.id } }
+        config: {
+          presence: { key: currentUser.id },
+          broadcast: { ack: true },
+        }
       });
 
       channel.on('broadcast', { event: 'new_message' }, async (payloadObj) => {
@@ -1777,9 +1916,9 @@ export default function BlueChatApp() {
               {isCameraOff ? (
                 <div className="flex h-full items-center justify-center text-slate-400"><VideoCameraSlash size={30} /></div>
               ) : (
-                <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full -scale-x-100 object-cover" />
+                <video ref={localVideoRef} autoPlay muted playsInline className={`h-full w-full object-cover ${isScreenSharing ? '' : '-scale-x-100'}`} />
               )}
-              <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/65 px-2 py-1 text-[11px] font-medium backdrop-blur-sm">Tú</span>
+              <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/65 px-2 py-1 text-[11px] font-medium backdrop-blur-sm">{isScreenSharing ? 'Tu pantalla' : 'Tú'}</span>
             </div>
           )}
 
@@ -1799,9 +1938,14 @@ export default function BlueChatApp() {
                   {isCallMuted ? <MicrophoneSlash size={22} weight="bold" /> : <Microphone size={22} weight="bold" />}
                 </button>
                 {callMode === 'video' && (
-                  <button onClick={toggleCallCamera} disabled={!localCallStream} className={`flex h-12 w-12 items-center justify-center rounded-xl transition active:scale-[0.96] disabled:opacity-40 sm:h-14 sm:w-14 ${isCameraOff ? 'bg-white text-slate-950' : 'bg-white/10 text-white hover:bg-white/20'}`} aria-label={isCameraOff ? 'Encender cámara' : 'Apagar cámara'}>
-                    {isCameraOff ? <VideoCameraSlash size={23} weight="bold" /> : <VideoCamera size={23} weight="bold" />}
-                  </button>
+                  <>
+                    <button onClick={toggleCallCamera} disabled={!localCallStream || isScreenSharing} className={`flex h-12 w-12 items-center justify-center rounded-xl transition active:scale-[0.96] disabled:opacity-40 sm:h-14 sm:w-14 ${isCameraOff ? 'bg-white text-slate-950' : 'bg-white/10 text-white hover:bg-white/20'}`} aria-label={isCameraOff ? 'Encender cámara' : 'Apagar cámara'}>
+                      {isCameraOff ? <VideoCameraSlash size={23} weight="bold" /> : <VideoCamera size={23} weight="bold" />}
+                    </button>
+                    <button onClick={toggleScreenShare} disabled={callPhase !== 'active'} className={`flex h-12 w-12 items-center justify-center rounded-xl transition active:scale-[0.96] disabled:opacity-40 sm:h-14 sm:w-14 ${isScreenSharing ? 'bg-blue-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`} aria-label={isScreenSharing ? 'Dejar de compartir pantalla' : 'Compartir pantalla'} title={isScreenSharing ? 'Dejar de compartir' : 'Compartir pantalla'}>
+                      <Desktop size={23} weight="bold" />
+                    </button>
+                  </>
                 )}
                 <button onClick={() => endCall(true)} className="flex h-12 min-w-20 items-center justify-center rounded-xl bg-red-600 px-6 text-white transition hover:bg-red-500 active:scale-[0.96] sm:h-14" aria-label={callPhase === 'outgoing' ? 'Cancelar llamada' : 'Finalizar llamada'}>
                   <PhoneDisconnect size={25} weight="fill" />
